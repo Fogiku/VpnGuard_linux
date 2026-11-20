@@ -1,0 +1,6 @@
+/bin/
+/data/
+/data-sim/
+/deploy/output/
+__pycache__/
+*.py[cod]

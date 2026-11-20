@@ -1,0 +1,14 @@
+# nfqws2 с параметрами, которые выбирает VpnGuard (файл /etc/vpnguard/nfqws2.args).
+# Путь к nfqws2 и папке lua зависит от способа установки zapret2 — сверьте перед первым запуском.
+[Unit]
+Description=zapret2 nfqws2 под управлением VpnGuard
+After=network-online.target
+
+[Service]
+WorkingDirectory=/opt/zapret2
+ExecStart=/bin/sh -c 'exec /opt/zapret2/nfq2/nfqws2 $(cat /etc/vpnguard/nfqws2.args)'
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+{
+  "scope": "offline validation only; not a production dependency",
+  "origin": "Ubuntu noble universe amd64",
+  "version": "4.2-2.1build1",
+  "packages": {
+    "libndpi-bin_4.2-2.1build1_amd64.deb": "251c0f480a07d84febdd09998da636d4130e66d0c274299d0104df564e26aa94",
+    "libndpi4.2t64_4.2-2.1build1_amd64.deb": "8ccc3e24cd2212fe975a26089efcf52c6ff79a0df83f1361aa74609c0f0d284b"
+  },
+  "arguments": ["-i", "synthetic.pcap", "-d", "-v", "2", "-C", "flows.csv"],
+  "note": "-v 2 is required to export Unknown flows in this tested build. No native JSON export; CSV must be normalized before integration."
+}

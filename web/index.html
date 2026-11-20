@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VpnGuard</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css?v=1.7">
+</head>
+<body>
+<div class="app">
+  <nav id="nav"><div class="logo">Vpn<b>Guard</b><small id="ver">—</small></div><div id="navitems"></div></nav>
+  <main>
+    <header>
+      <div class="row"><button class="menu-btn" type="button" onclick="nav.classList.toggle('open')" aria-label="Меню">☰</button><h1 id="title">Главная</h1></div>
+      <div class="row"><span class="stub" id="simnote" hidden>Режим имитации: система не затрагивается</span><span class="dot" id="adot"></span><span class="sub" id="agent">загрузка…</span></div>
+    </header>
+    <div id="page"></div>
+  </main>
+</div>
+<div id="toast" role="status"></div>
+<div class="modal" id="modal"><div class="card" id="mbody"></div></div>
+<script src="app.js?v=1.7"></script>
+</body>
+</html>

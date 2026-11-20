@@ -1,0 +1,9 @@
+[Unit]
+Description=Repair captured Ubuntu without erasing its disk
+After=cloud-init.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /cdrom/vpnguard/repair_installed.py /cdrom/vpnguard
+TimeoutStartSec=900
+StandardOutput=journal+console
+StandardError=journal+console
