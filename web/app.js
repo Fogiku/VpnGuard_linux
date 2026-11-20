@@ -355,11 +355,42 @@ function developmentHtml() {
     return `<details class="dev-stage" data-details-key="stage-${s.id}"><summary><div class="row"><b style="flex:1">${s.id}. ${esc(s.title)}</b><span class="sub">${status} · ${done.length} из ${total}</span></div><progress value="${done.length}" max="${total || 1}" aria-label="${esc(s.title)}: ${done.length} из ${total}"></progress></summary><p class="sub">${esc(s.evidence)}</p><div class="dev-lists">${done.length ? `<div><b>Выполнено</b><ul>${done.map(item => `<li>${esc(item)}</li>`).join('')}</ul></div>` : ''}${remaining.length ? `<div><b>Осталось</b><ul>${remaining.map(item => `<li>${esc(item)}</li>`).join('')}</ul></div>` : ''}</div></details>`;
   }).join('')}</div>`;
 }
+let repositoryRelease = null, repositoryBusy = false, repositoryError = '';
 function pUpdates() {
   const statuses = { prepared: 'Подготовлено', installed: 'Ожидает проверки', confirmed: 'Установлено и проверено', rolled_back: 'Выполнен откат', rollback_failed: 'Ошибка отката' };
-  setHtml(`<div class="card"><div class="sec">Linux · ${esc(S.version)}</div><p class="sub">Для установки выпуска из репозитория запустите скрипт на компьютере с Windows.</p><div class="row"><a href="Update-VpnGuard.ps1" download>Скачать скрипт для Windows</a><a href="https://github.com/Fogiku/VpnGuard_linux#обновление-шлюза-из-windows">Инструкция по обновлению</a></div></div>` + developmentHtml() +
+  const job = S.repositoryInstall || {};
+  const jobStatus = {...statuses, downloading: 'Скачивание и установка', failed: 'Не удалось установить'};
+  const disabled = repositoryBusy ? ' disabled' : '';
+  const actions = `<div class="card"><div class="sec">Обновление из репозитория</div>
+    <div class="row"><button id="rcheck"${disabled}>Проверить обновления</button>
+    ${!S.sim && repositoryRelease?.available && repositoryRelease.version !== S.version && !['downloading','installed','prepared'].includes(job.status) ? `<button class="p" id="rinstall"${disabled}>Установить ${esc(repositoryRelease.version)}</button>` : ''}
+    ${job.canConfirm ? `<button class="p" id="rconfirm"${disabled}>Проверить связь и подтвердить</button>` : ''}</div>
+    ${repositoryRelease ? `<p>Последний выпуск: ${esc(repositoryRelease.version)} · установлен: ${esc(S.version)}</p>` : ''}
+    ${job.status ? `<p>${esc(job.version)} · ${esc(jobStatus[job.status] || job.status)} ${esc(job.message || '')}</p>` : ''}
+    ${repositoryError ? `<p class="err">${esc(repositoryError)}</p>` : ''}</div>`;
+  setHtml(`<div class="card"><div class="sec">Linux · ${esc(S.version)}</div><p class="sub">Для первого перехода со старой версии можно использовать Windows.</p><div class="row"><a href="Update-VpnGuard.ps1" download>Скачать скрипт для Windows</a><a href="https://github.com/Fogiku/VpnGuard_linux#обновление-шлюза-из-windows">Инструкция по обновлению</a></div></div>` + actions + developmentHtml() +
     (S.releases || []).map(r => `<div class="card"><div class="sec">${esc(r.version)} · ${esc(r.date)}</div><ul>${r.changes.map(c => `<li>${esc(c)}</li>`).join('')}</ul></div>`).join('') +
     `<div class="sec">История установки</div><div class="card">${(S.updates || []).length ? `<table><tr><th>Время</th><th>Версия</th><th>Результат</th><th>Описание</th></tr>${S.updates.slice().reverse().map(e => `<tr><td style="white-space:nowrap">${esc(new Date(e.at).toLocaleString('ru-RU'))}</td><td>${esc(e.version)}</td><td>${esc(statuses[e.status] || e.status)}</td><td>${esc(e.description)}</td></tr>`).join('')}</table>` : '<p class="sub">Установки с журналированием ещё не выполнялись.</p>'}</div>`);
+  async function request(action) {
+    repositoryBusy = true;
+    repositoryError = '';
+    pUpdates();
+    try {
+      if (action === 'check') repositoryRelease = await get('repository/check');
+      else {
+        const body = action === 'install' ? {version: repositoryRelease.version} : {job: job.job};
+        const result = await post('repository/' + action, body, true);
+        if (result === null) throw new Error($('toast').textContent);
+        toast(result);
+      }
+    } catch (err) { repositoryError = err.message; }
+    finally { repositoryBusy = false; if (PAGE === 'updates') pUpdates(); }
+  }
+  $('rcheck').onclick = () => request('check');
+  if ($('rinstall')) $('rinstall').onclick = async () => {
+    if (await ask('Агент перезапустится. После восстановления страницы подтвердите обновление в течение четырёх минут, иначе шлюз вернёт прежнюю версию.', 'Установить обновление')) request('install');
+  };
+  if ($('rconfirm')) $('rconfirm').onclick = () => request('confirm');
 }
 async function pLogs() {
   let l; try { l = await get('log'); } catch (e) { return; } if (PAGE !== 'logs' || busyUI()) return;

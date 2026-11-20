@@ -198,6 +198,8 @@ def rollback(directory, job):
 
 
 def prepare(candidate, version, sha, settings=None):
+    if (DATA / "routes-pending.json").exists():
+        raise RuntimeError("route change awaiting confirmation or rollback")
     settings = settings or {}
     if set(settings) - {'net.pinFlows', 'net.localNetworks', 'dns.serveWG', 'dns.lanAddress', 'dns.allowLAN', 'wg.dns'} or any(not isinstance(v, str) for v in settings.values()):
         raise RuntimeError('only declared network settings may be changed by this updater')
@@ -234,8 +236,15 @@ def prepare(candidate, version, sha, settings=None):
         raise RuntimeError('working tunnel is required before deployment')
     atomic_json(directory / 'job.json', job)
     event(job, 'prepared', 'Подготовлена резервная копия агента, настроек и сетевого состояния.')
-    run('systemd-run', '--unit=' + job['timer'], '--on-active=240s', '--timer-property=AccuracySec=1s',
-        '/usr/bin/python3', str(directory / 'guard.py'), 'rollback', str(directory))
+    try:
+        run('systemd-run', '--unit=' + job['timer'], '--on-active=240s', '--timer-property=AccuracySec=1s',
+            '/usr/bin/python3', str(directory / 'guard.py'), 'rollback', str(directory))
+    except Exception:
+        # No installation mutation has occurred. A late timer also sees this terminal status.
+        job['status'] = 'rolled_back'
+        atomic_json(directory / 'job.json', job)
+        event(job, job['status'], 'Не удалось запустить таймер защиты. Прежняя версия сохранена.')
+        raise
     try:
         if settings:
             atomic_json(DATA / 'config.json', {**config, **settings})

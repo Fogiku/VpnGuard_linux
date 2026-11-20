@@ -1,5 +1,5 @@
 // Перенос настроек из Windows-версии VpnGuard: vpnguard --import ПАПКА.
-// В папке (её собирает deploy/Prepare-Usb.ps1 на компьютере с Windows):
+// Содержимое папки экспорта:
 //
 //	wg_server.conf   — конфигурация сервера WireGuard (data\wg\wg_server.conf);
 //	clients\*.conf   — конфигурации клиентов (data\clients и C:\ProgramData\VpnGuard\clients): из них берутся

@@ -186,6 +186,19 @@ func startWeb(listen string) error {
 		w.WriteHeader(http.StatusUnauthorized)
 		js(w, map[string]string{"error": "неверный пароль"})
 	})
+	api("repository/check", false, func(map[string]json.RawMessage) (any, error) {
+		r, err := fetchRelease()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"version": r.Version, "available": newerRelease(r.Version, Version)}, nil
+	})
+	api("repository/install", true, func(b map[string]json.RawMessage) (any, error) {
+		return "Обновление запущено", startRepositoryUpdate(str(b, "version"), str(b, "_remoteIP"))
+	})
+	api("repository/confirm", true, func(b map[string]json.RawMessage) (any, error) {
+		return "Обновление подтверждено", confirmRepositoryUpdate(str(b, "job"), str(b, "_remoteIP"))
+	})
 	api("meduzalocations", false, func(map[string]json.RawMessage) (any, error) {
 		m, ok := mod("meduza").(*meduza)
 		if !ok {
@@ -196,6 +209,11 @@ func startWeb(listen string) error {
 	api("state", false, func(body map[string]json.RawMessage) (any, error) {
 		state := buildState()
 		state["clientIP"] = str(body, "_remoteIP")
+		if !Sim {
+			if receipt, err := readInstallReceipt(); err == nil {
+				state["repositoryInstall"] = map[string]any{"status": receipt.Status, "version": receipt.Version, "job": receipt.Job, "message": receipt.Message, "canConfirm": receipt.Job != "" && receipt.Version == Version && receipt.Status == "installed" && receipt.Requester == state["clientIP"]}
+			}
+		}
 		return state, nil
 	})
 	api("log", false, func(map[string]json.RawMessage) (any, error) { return snapshotLog(&logRing), nil })

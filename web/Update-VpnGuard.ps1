@@ -5,11 +5,13 @@ param(
     [ValidatePattern('^[a-zA-Z_][a-zA-Z0-9_-]*$')][string]$User = 'vpnadmin',
     [ValidateRange(1,65535)][int]$Port = 22,
     [string]$IdentityFile,
+    [string]$KnownHostsFile,
     [ValidatePattern('^\d+\.\d+(\.\d+)?$')][string]$Version
 )
 
 $ErrorActionPreference = 'Stop'
-$repository = 'https://github.com/Fogiku/VpnGuard_linux.git'
+$repository = 'https://raw.githubusercontent.com/Fogiku/VpnGuard_linux'
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 function Invoke-Tool([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
@@ -18,10 +20,31 @@ function Invoke-Tool([string]$Program, [string[]]$Arguments) {
     }
 }
 
-foreach ($tool in 'git', 'go', 'ssh', 'scp') {
+foreach ($tool in 'ssh', 'scp') {
     Get-Command $tool -CommandType Application -ErrorAction Stop | Out-Null
 }
 $common = @('-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10', '-o', 'ControlPath=none')
+# Reuse access files if the script is next to an extracted previous distribution.
+$roots = @($PSScriptRoot, (Get-Location).Path, (Join-Path $env:USERPROFILE 'Downloads'), (Join-Path $env:USERPROFILE 'Desktop'))
+foreach ($root in $roots) {
+    foreach ($prefix in '.', '1', '1/1') {
+        $folder = Join-Path $root $prefix
+        if (-not $IdentityFile) {
+            foreach ($relative in 'SSH-PRIVATE-KEY', 'deploy/output/support/verified-install-access/SSH-PRIVATE-KEY', 'deploy/output/retry-access/SSH-PRIVATE-KEY') {
+                $file = Join-Path $folder $relative
+                if (Test-Path -LiteralPath $file -PathType Leaf) { $IdentityFile = $file; break }
+            }
+        }
+        if (-not $KnownHostsFile) {
+            $file = Join-Path $folder 'deploy/output/repair-access/TARGET-KNOWN-HOSTS'
+            if (Test-Path -LiteralPath $file -PathType Leaf) { $KnownHostsFile = $file }
+        }
+    }
+}
+if ($KnownHostsFile) {
+    $known = (Resolve-Path -LiteralPath $KnownHostsFile).Path.Replace('\','/')
+    $common += @('-o', ('UserKnownHostsFile="' + $known + '"'))
+}
 if ($IdentityFile) {
     $common += @('-i', (Resolve-Path -LiteralPath $IdentityFile).Path, '-o', 'IdentitiesOnly=yes')
 }
@@ -31,20 +54,12 @@ function Invoke-Gateway([string]$Command) {
     Invoke-Tool ssh ($sshArgs + $Command)
 }
 
-# Resolve a numbered release tag once. Verify the fetched tag object before building.
-$releases = @(foreach ($ref in (Invoke-Tool git @('ls-remote', '--refs', '--tags', $repository, 'refs/tags/v*'))) {
-    if ($ref -cmatch '^([a-f0-9]{40})\s+refs/tags/v(\d+\.\d+(?:\.\d+)?)$') {
-        [pscustomobject]@{ObjectId=$Matches[1]; Number=$Matches[2]; Order=[version]$Matches[2]}
-    }
-})
-if ($Version) {
-    $release = $releases | Where-Object Number -eq $Version | Select-Object -First 1
-} else {
-    $release = $releases | Sort-Object Order -Descending | Select-Object -First 1
+$channel = if ($Version) { "bin-v$Version" } else { "releases" }
+$release = Invoke-RestMethod -Uri "$repository/$channel/manifest.json" -TimeoutSec 30
+$number = [string]$release.version
+if ($number -notmatch '^\d+\.\d+(\.\d+)?$' -or ($Version -and $number -ne $Version) -or $release.source -cnotmatch '^[a-f0-9]{40}$') {
+    throw 'Unexpected repository release manifest.'
 }
-if (-not $release) { throw "No matching VpnGuard release tag in $repository." }
-$number = $release.Number
-$tag = "v$number"
 
 $current = (Invoke-Gateway '/usr/local/bin/vpnguard --version').Trim()
 if ($current -notmatch '^\d+\.\d+(\.\d+)?$') { throw "Unrecognized installed version: $current" }
@@ -66,30 +81,18 @@ New-Item -ItemType Directory -Path $temp | Out-Null
 $stage = $null
 Push-Location -LiteralPath $temp
 try {
-    Invoke-Tool git @('-c','core.autocrlf=false','clone','--quiet','--depth','1','--branch',$tag,$repository,'source')
-    $fetched = (Invoke-Tool git @('-C','source','rev-parse',"refs/tags/$tag")).Trim()
-    if ($fetched -cne $release.ObjectId) { throw "Release tag changed during download. Retry." }
-    $commit = (Invoke-Tool git @('-C','source','rev-parse',"refs/tags/${tag}^{commit}")).Trim()
-    if ($commit -cne (Invoke-Tool git @('-C','source','rev-parse','HEAD')).Trim()) { throw 'Unexpected checkout.' }
-    Write-Host "Building tag $tag at $commit"
-    $buildEnv = @{ GOOS='linux'; GOARCH=$targetArch; CGO_ENABLED='0'; GOWORK='off'; GOFLAGS=''; GOTOOLCHAIN='local' }
-    $saved = @{}
-    Push-Location source
-    try {
-        foreach ($key in $buildEnv.Keys) {
-            $saved[$key] = [Environment]::GetEnvironmentVariable($key)
-            [Environment]::SetEnvironmentVariable($key, $buildEnv[$key])
-        }
-        Invoke-Tool go @('build','-mod=readonly','-trimpath','-o','../vpnguard','.')
-    } finally {
-        foreach ($key in $saved.Keys) { [Environment]::SetEnvironmentVariable($key, $saved[$key]) }
-        Pop-Location
+    $sha = [string]$release.sha256.$targetArch
+    if ($sha -cnotmatch '^[a-f0-9]{64}$') { throw "No release checksum for $targetArch." }
+    Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 -Uri "$repository/bin-v$number/vpnguard-linux-$targetArch" -OutFile vpnguard
+    if ((Get-FileHash vpnguard -Algorithm SHA256).Hash -ne $sha) { throw 'Downloaded binary SHA256 mismatch.' }
+    foreach ($helper in 'guarded_update.py', 'route_guard.py') {
+        Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri "$repository/$($release.source)/deploy/$helper" -OutFile $helper
+        if ((Get-FileHash $helper -Algorithm SHA256).Hash -ne $release.helpers.$helper) { throw "Unexpected checksum for $helper." }
     }
-    $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath vpnguard).Hash.ToLowerInvariant()
     $remoteDir = (Invoke-Gateway 'mktemp -d /tmp/vpnguard-upload.XXXXXXXXXX').Trim()
     if ($remoteDir -cnotmatch '^/tmp/vpnguard-upload\.[a-zA-Z0-9]{10}$') { throw 'Unexpected staging directory.' }
     $stage = $remoteDir
-    Invoke-Tool scp ($common + @('-P',"$Port",'vpnguard','source/deploy/guarded_update.py','source/deploy/route_guard.py',"${dest}:$stage/"))
+    Invoke-Tool scp ($common + @('-P',"$Port",'vpnguard','guarded_update.py','route_guard.py',"${dest}:$stage/"))
 
     # Run only root-owned copies. The guard copies its timer/rollback files before replacing the agent.
     $prepare = @'

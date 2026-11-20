@@ -7,7 +7,9 @@ type Release struct {
 	Changes []string `json:"changes"`
 }
 
-var releases = []Release{{Version: "1.9.1", Date: "2026-11-20", Changes: []string{
+var releases = []Release{{Version: "1.9.2", Date: "2026-11-20", Changes: []string{
+	"Шлюз проверяет репозиторий и устанавливает обновление из веб-интерфейса с отложенным подтверждением и откатом.",
+}}, {Version: "1.9.1", Date: "2026-11-20", Changes: []string{
 	"Из диагностики можно скачать текстовый отчёт с результатами показанных проверок.",
 	"Windows-скрипт устанавливает релиз из Git-тега с проверкой связи и автоматическим откатом.",
 }}, {Version: "1.9", Date: "2026-11-17", Changes: []string{
