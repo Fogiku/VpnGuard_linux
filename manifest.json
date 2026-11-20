@@ -1,0 +1,12 @@
+{
+  "version": "1.9.2",
+  "source": "4a8ba743b3f202fac0401474989c90e54f8e5206",
+  "sha256": {
+    "amd64": "fa59301c2ac0055f7d275514884375224de40f3cb3c5e092dcbada7fd313eae5",
+    "arm64": "e03f14d498a78ad0929e11196cef38de37e90a1d900001895fd4329dbc7b76c1"
+  },
+  "helpers": {
+    "guarded_update.py": "f55813e1b8816273bec7a8c5a637dfd7c0dbb2e7343b08b83db9956eeda51acf",
+    "route_guard.py": "7ec3ab015adc5fbbe5037249743dfe532056f278182e30af8656fa095bdb2bf3"
+  }
+}
