@@ -301,11 +301,36 @@ async function pMon() {
   });
 }
 // ---------------------------------------------------------------- диагностика
+function downloadDiagnosticReport(checks, state) {
+  const now = new Date().toISOString();
+  const failed = checks.filter(check => !check.ok).length;
+  const updates = state.updates || [];
+  const last = updates[updates.length - 1];
+  // Only export check labels and outcomes. Raw findings and logs can contain local addresses or credentials.
+  const lines = [
+    'VpnGuard Linux · Отчёт диагностики',
+    'Создан (UTC): ' + now,
+    'Версия: ' + state.version,
+    'Режим: ' + (state.sim ? 'имитация' : 'шлюз'),
+    'Маршрутизация готова: ' + (state.routingReady ? 'да' : 'нет'),
+    'Последнее обновление: ' + (last ? last.version + ' · ' + last.status + ' · ' + last.at : 'записей нет'),
+    'Проверок: ' + checks.length + ', пройдено: ' + (checks.length - failed) + ', проблем: ' + failed,
+    '',
+    ...checks.map(check => [check.ok ? 'OK' : 'СБОЙ', check.at, check.module, check.id, check.title].join(' | '))
+  ];
+  const url = URL.createObjectURL(new Blob(['\uFEFF', lines.join('\r\n') + '\r\n'], {type: 'text/plain;charset=utf-8'}));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'vpnguard-report-' + now.replace(/[:.]/g, '-') + '.txt';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
 async function pDiag(run) {
   if (DIAGNEW) { run = true; DIAGNEW = false; } // при входе на страницу проверки выполняются заново
   let res; try { res = run ? await post('diagrun', {}, true) : await get('diag'); } catch (e) { return; } if (PAGE !== 'diag' || !res) return;
   const bad = res.filter(r => !r.ok);
-  $('page').innerHTML = hero(bad.length ? 1 : 0, bad.length ? 'Найдено проблем: ' + bad.length : 'Проблем не найдено', `Проверок: ${res.length}. Модули чинят себя сами по лестнице восстановления; здесь видно, что именно не так и что делать руками.`, '<div class="row"><button type="button" class="p" id="drun">⟳ Проверить сейчас</button></div>') +
+  $('page').innerHTML = hero(bad.length ? 1 : 0, bad.length ? 'Найдено проблем: ' + bad.length : 'Проблем не найдено', `Проверок: ${res.length}. Модули чинят себя сами по лестнице восстановления; здесь видно, что именно не так и что делать руками.`, '<div class="row"><button type="button" class="p" id="drun">⟳ Проверить сейчас</button><button type="button" id="dreport">Скачать отчёт проверки</button></div>') +
     `<div class="card"><table><tr><th></th><th>Модуль</th><th>Проверка</th><th>Что проверено</th><th>Что делать</th><th></th></tr>${res.map(r => `<tr><td><span class="dot ${r.ok ? 'l0' : 'l2'}"></span></td><td>${esc(r.module)}</td><td>${esc(r.title)}</td><td class="muted">${esc(r.text)}</td><td>${esc(r.hint || '')}</td><td class="act">${r.fixTitle ? `<button type="button" class="sq" data-fix="${r.id}">${esc(r.fixTitle)}</button>` : ''}</td></tr>`).join('')}</table></div>` +
     (S.faults ? `<div class="sec">Имитация сбоев</div><div class="card"><div class="sub" style="margin-bottom:8px">Включите сбой и посмотрите, как агент его находит и что делает. Проверки идут раз в 10–30 секунд.</div>${S.faults.map(f => `<div class="row" style="padding:4px 0"><button type="button" class="sq${f.on ? ' bad' : ''}" data-fault="${f.id}" data-on="${f.on ? '' : '1'}">${f.on ? 'Убрать сбой' : 'Включить'}</button><span class="${f.on ? 'c2' : ''}">${esc(f.title)}</span></div>`).join('')}</div>` : '') +
     S.modules.filter(m => !m.page && !m.exit && ((m.fields && m.fields.length) || (m.actions && m.actions.length))).map(moduleBlock).join('') +
@@ -314,6 +339,8 @@ async function pDiag(run) {
     `<div class="sec">Журнал решений</div><div class="card">${decisions(30)}</div>`;
   document.querySelectorAll('[data-mod]').forEach(el => bindModule(M(el.dataset.mod), el, 'x' + el.dataset.mod));
   $('drun').onclick = () => pDiag(true);
+  const reportState = S;
+  $('dreport').onclick = () => downloadDiagnosticReport(res, reportState);
   document.querySelectorAll('[data-fix]').forEach(b => { b.onclick = async () => { await post('fix', { id: b.dataset.fix }); pDiag(true); }; });
   document.querySelectorAll('[data-fault]').forEach(b => { b.onclick = async () => { await post('sim', { id: b.dataset.fault, on: !!b.dataset.on }); setTimeout(() => pDiag(true), 2500); }; });
 }
@@ -330,7 +357,7 @@ function developmentHtml() {
 }
 function pUpdates() {
   const statuses = { prepared: 'Подготовлено', installed: 'Ожидает проверки', confirmed: 'Установлено и проверено', rolled_back: 'Выполнен откат', rollback_failed: 'Ошибка отката' };
-  setHtml(`<div class="card"><div class="sec">Linux · ${esc(S.version)}</div><p class="sub">Версии Linux нумеруются с 1.0. Ниже — прогресс разработки, изменения выпусков и результаты установки на этом шлюзе.</p></div>` + developmentHtml() +
+  setHtml(`<div class="card"><div class="sec">Linux · ${esc(S.version)}</div><p class="sub">Для установки выпуска из репозитория запустите скрипт на компьютере с Windows.</p><div class="row"><a href="Update-VpnGuard.ps1" download>Скачать скрипт для Windows</a><a href="https://github.com/Fogiku/VpnGuard_linux#обновление-шлюза-из-windows">Инструкция по обновлению</a></div></div>` + developmentHtml() +
     (S.releases || []).map(r => `<div class="card"><div class="sec">${esc(r.version)} · ${esc(r.date)}</div><ul>${r.changes.map(c => `<li>${esc(c)}</li>`).join('')}</ul></div>`).join('') +
     `<div class="sec">История установки</div><div class="card">${(S.updates || []).length ? `<table><tr><th>Время</th><th>Версия</th><th>Результат</th><th>Описание</th></tr>${S.updates.slice().reverse().map(e => `<tr><td style="white-space:nowrap">${esc(new Date(e.at).toLocaleString('ru-RU'))}</td><td>${esc(e.version)}</td><td>${esc(statuses[e.status] || e.status)}</td><td>${esc(e.description)}</td></tr>`).join('')}</table>` : '<p class="sub">Установки с журналированием ещё не выполнялись.</p>'}</div>`);
 }
