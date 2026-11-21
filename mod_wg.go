@@ -635,21 +635,24 @@ func (m *wgServer) Set(k, v string) error {
 	if err != nil {
 		return err
 	}
+	m.tk.Lock()
+	defer m.tk.Unlock()
 	if v == cfg(k, "\x00") {
 		return nil
 	}
-	m.tk.Lock()
-	defer m.tk.Unlock()
 	m.backup("перед изменением " + k)
+	oldSubnet := m.subnet()
+	if err := setCfg(k, v); err != nil {
+		return err
+	}
 	if k == "wg.subnet" {
-		old, moved := m.subnet(), map[string]string{}
+		moved := map[string]string{}
 		for _, c := range m.d.Clients {
-			n := v + strings.TrimPrefix(c.IP, old)
+			n := v + strings.TrimPrefix(c.IP, oldSubnet)
 			moved[c.IP], c.IP = n, n
 		}
 		remapRoutes(moved)
 	}
-	setCfg(k, v)
 	m.save()
 	switch k {
 	case "wg.subnet", "wg.port", "wg.mtu":

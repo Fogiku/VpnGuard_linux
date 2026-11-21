@@ -286,14 +286,21 @@ func startWeb(listen string) error {
 		key := str(b, "key")
 		for _, f := range m.Fields() { // менять можно только поля, которые модуль сам объявил
 			if f.Key == key {
-				Log("INFO", "веб: настройка %s изменена", key)
 				if m.ID() == "inet" && (key == "net.pinFlows" || key == "net.localNetworks") {
 					if err := routeProtocol(b); err != nil {
 						return nil, err
 					}
-					return "Сохранено, проверяется связь", setNetworkPolicyFrom(key, str(b, "value"), str(b, "_remoteIP"))
+					if err := setNetworkPolicyFrom(key, str(b, "value"), str(b, "_remoteIP")); err != nil {
+						return nil, err
+					}
+					Log("INFO", "веб: настройка %s изменена", key)
+					return "Сохранено, проверяется связь", nil
 				}
-				return "Сохранено", m.Set(key, str(b, "value"))
+				if err := m.Set(key, str(b, "value")); err != nil {
+					return nil, err
+				}
+				Log("INFO", "веб: настройка %s изменена", key)
+				return "Сохранено", nil
 			}
 		}
 		return nil, errNoField
