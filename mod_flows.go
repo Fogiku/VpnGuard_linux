@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -23,6 +24,8 @@ type flowRow struct {
 	Zone            uint16  `json:"zone"`
 }
 type flowModule struct {
+	installMu     sync.Mutex
+	installStatus string
 	base
 	rows      []flowRow
 	at        time.Time
@@ -167,6 +170,9 @@ func (m *flowModule) Tables() []Table {
 	tables := []Table{{Title: "Соединения IPv4", Cols: []string{"ID", "Протокол", "Источник", "Назначение", "ct mark", "Приложение", "Conntrack ID", "Zone"}, Rows: rows, Empty: "Нет снимка", Note: note + " Conntrack ID может повторно использоваться; он не доказывает непрерывность соединения между снимками."}}
 	if m.dpi != nil {
 		tables = append(tables, *m.dpi)
+	}
+	if m.installStatus != "" {
+		tables = append(tables, Table{Title: "Установка nDPI", Text: m.installStatus})
 	}
 	return tables
 }

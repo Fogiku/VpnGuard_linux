@@ -29,7 +29,7 @@ func sampleDPITable(iface string) Table {
 		return t
 	}
 	if batch.Error != "" {
-		t.Empty = map[string]string{"missing": "Установите libndpi-bin версии nDPI 4.2.0.", "version": "Поддерживается ndpiReader 4.2.0.", "permission": "Для чтения пакетов нужны права CAP_NET_RAW.", "interface": "Не удалось открыть интерфейс WG-Server или файл в памяти.", "drops": "Ядро сообщило о потере пакетов. Выборка пропущена."}[batch.Error]
+		t.Empty = map[string]string{"missing": "Нажмите «Установить libndpi-bin» на этой странице.", "version": "Поддерживается ndpiReader 4.2.0.", "permission": "Для чтения пакетов нужны права CAP_NET_RAW.", "interface": "Не удалось открыть интерфейс WG-Server или файл в памяти.", "drops": "Ядро сообщило о потере пакетов. Выборка пропущена."}[batch.Error]
 		if t.Empty == "" {
 			t.Empty = "Не удалось обработать выборку nDPI."
 		}
