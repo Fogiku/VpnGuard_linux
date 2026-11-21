@@ -51,7 +51,9 @@ class GuardTests(unittest.TestCase):
 
     def command(self, *args, **kwargs):
         self.calls.append(args)
-        if args[0] == str(self.candidate):
+        if args[-1] == '--version':
+            self.assertEqual(Path(args[0]).parent.parent, self.binary.parent)
+            self.assertNotEqual(Path(args[0]), self.candidate)
             return '1.0\n'
         if args[0] == 'systemd-run':
             # Timer must be armed while the original executable is still installed.

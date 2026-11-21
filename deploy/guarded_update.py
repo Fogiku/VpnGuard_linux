@@ -12,6 +12,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 
@@ -206,8 +207,6 @@ def prepare(candidate, version, sha, settings=None):
     candidate = Path(candidate).resolve()
     if hashlib.sha256(candidate.read_bytes()).hexdigest() != sha:
         raise RuntimeError('candidate SHA256 mismatch')
-    if run(str(candidate), '--version').strip() != version:
-        raise RuntimeError('candidate version mismatch')
     directory = BASE / datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     directory.mkdir(mode=0o700, parents=True)
     shutil.copyfile(BINARY, directory / 'previous-binary')
@@ -218,11 +217,21 @@ def prepare(candidate, version, sha, settings=None):
     for name in ['config.json', 'routes.json']:
         shutil.copyfile(DATA / name, directory / name)
     config = json.loads((DATA / 'config.json').read_text())
+    # /run and the backup volume may both be mounted noexec.
+    with tempfile.TemporaryDirectory(prefix='.vpnguard-check-', dir=BINARY.parent) as work:
+        executable = Path(work) / 'vpnguard'
+        shutil.copyfile(directory / 'candidate', executable)
+        if hashlib.sha256(executable.read_bytes()).hexdigest() != sha:
+            raise RuntimeError('validation copy SHA256 mismatch')
+        executable.chmod(0o700)
+        if run(str(executable), '--version').strip() != version:
+            raise RuntimeError('candidate version mismatch')
+        if settings:
+            validation = directory / 'validation'
+            validation.mkdir(mode=0o700)
+            atomic_json(validation / 'config.json', {**config, **settings})
+            run(str(executable), '--check-network-settings', '--data', str(validation))
     if settings:
-        validation = directory / 'validation'
-        validation.mkdir(mode=0o700)
-        atomic_json(validation / 'config.json', {**config, **settings})
-        run(str(directory / 'candidate'), '--check-network-settings', '--data', str(validation))
         if settings.get('net.pinFlows') == 'true' and config.get('net.pinFlows', 'false') != 'true':
             audit = directory / 'audit_conntrack_marks.py'
             shutil.copyfile(Path(__file__).with_name('audit_conntrack_marks.py'), audit)
