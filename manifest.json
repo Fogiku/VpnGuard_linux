@@ -1,9 +1,9 @@
 {
-  "version": "1.9.21",
-  "source": "86b7a14f53ed15421961415a112ca35e85c97a57",
+  "version": "1.9.22",
+  "source": "982c448f7a55a5786d1b2093e931f737e1d257a3",
   "sha256": {
-    "amd64": "b012eaf09b2ec358c1e63271f5bff29fdb86a6fa155b7f80ac53e84d7d1b98e2",
-    "arm64": "3b39ee32d37d2b34d15ebdbd1e9da0767fd5e917564f560140398fd2cd3561d8"
+    "amd64": "17895e5a926a3738722d0bb891be325742aea99610506335934eb9eb64a0f82c",
+    "arm64": "22b85b5b9f59c5354c7cafd2983a68aec42fc23ad47e19ec1e80a6a5c1943f75"
   },
   "helpers": {
     "guarded_update.py": "6f318ca0f14789d5efcbf6a85b9712c55c240423ba4d5cf2cc760f985ccf43f9",
