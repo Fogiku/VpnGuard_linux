@@ -26,8 +26,15 @@ func (s *meduzaProbeSys) Run(d time.Duration, input, name string, args ...string
 }
 
 func TestMeduzaConfirmsFailedProbeBeforeBlocking(t *testing.T) {
+	m := &meduza{pings: map[string]mdzPing{}, pingAt: time.Now()}
+	for i, previous := range Mods {
+		if previous.ID() == m.ID() {
+			Mods[i] = m
+			t.Cleanup(func() { Mods[i] = previous })
+			break
+		}
+	}
 	setup(t)
-	m := mod("meduza").(*meduza)
 	old := S
 	t.Cleanup(func() { S = old })
 	s := &meduzaProbeSys{Sys: old, iface: m.iface}
