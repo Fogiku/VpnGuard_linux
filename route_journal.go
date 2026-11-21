@@ -294,6 +294,11 @@ func routeOperation(reason string, awaitAck, keepLast bool, fn func() error) err
 	} else if !os.IsNotExist(err) {
 		return err
 	}
+	if !routesStarting.Load() {
+		if _, err := resolveRouteRegistry(true); err != nil {
+			return fmt.Errorf("реестр сетевых ресурсов: %w", err)
+		}
+	}
 	c := &routeChange{ID: fmt.Sprint(time.Now().UnixNano()), Reason: reason, Status: "preparing", Deadline: time.Now().Add(90 * time.Second).Unix(), AwaitAck: awaitAck, KeepLast: keepLast}
 	c.Timer = "vpnguard-routes-" + c.ID
 	activeRouteChange = c

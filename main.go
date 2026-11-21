@@ -69,6 +69,9 @@ func main() {
 			_, err = dnsSettings.plans(Sim)
 		}
 		if err == nil {
+			_, err = configuredWireGuardExits(cfg("vpn.extraWireGuard", ""))
+		}
+		if err == nil {
 			err = validateWGExportDNS(cfg("wg.dns", "1.1.1.1"))
 		}
 		if err != nil {
@@ -101,6 +104,14 @@ func main() {
 		}
 		fmt.Print(r)
 		return
+	}
+	exits, err := configuredWireGuardExits(cfg("vpn.extraWireGuard", ""))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	for _, exit := range exits {
+		Register(exit)
 	}
 	initTelemetry()
 	initDNS()

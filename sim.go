@@ -120,6 +120,8 @@ func (s *simSys) ifaceOK(iface string) bool {
 		return false
 	case iface == "mdz0":
 		return s.units["meduzavpnd"] && s.mdzConn && !(s.fault["meduza.server"] && s.mdzProto == "ultra")
+	case mod("wg-out-"+iface) != nil:
+		return true
 	case iface == "eth0":
 		return true
 	default:
@@ -403,6 +405,9 @@ func (s *simSys) Run(_ time.Duration, stdin, name string, a ...string) (string, 
 			h := sha256.Sum256([]byte(strings.TrimSpace(stdin)))
 			return base64.StdEncoding.EncodeToString(h[:]) + "\n", 0
 		case "show":
+			if arg(2) == "peers" && mod("wg-out-"+arg(1)) != nil {
+				return "simulated-peer\n", 0
+			}
 			if arg(2) == "listen-port" {
 				return confVal(s.files["/etc/wireguard/"+arg(1)+".conf"], "ListenPort") + "\n", 0
 			}

@@ -61,11 +61,12 @@ type Check struct {
 	Fix      func() (string, error)
 }
 type Exit struct {
-	Iface string `json:"iface"`
-	Table int    `json:"table"` // таблица маршрутизации; 0 — основная
-	Mark  int    `json:"mark"`
-	Queue bool   `json:"queue"` // трафик проходит через очередь nfqws2
-	Block bool   `json:"block"`
+	AutoRoutes bool   `json:"-"` // Дополнительный туннель запрашивает стабильные Mark и Table по ID модуля.
+	Iface      string `json:"iface"`
+	Table      int    `json:"table"` // таблица маршрутизации; 0 — основная
+	Mark       int    `json:"mark"`
+	Queue      bool   `json:"queue"` // трафик проходит через очередь nfqws2
+	Block      bool   `json:"block"`
 }
 
 type Module interface {

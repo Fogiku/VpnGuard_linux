@@ -10,6 +10,7 @@ import (
 	"net"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -199,21 +200,40 @@ func profileOf(ip string) string {
 
 // Compile строит сценарий nftables и команды ip по текущему состоянию выходов.
 func Compile() (script string, ipCmds [][]string) {
-	rtMu.Lock()
-	defer rtMu.Unlock()
-	resources, resourceErr := currentRouteResources()
+	reg, resourceErr := resolveRouteRegistry(false)
 	if resourceErr != nil {
 		return "error_invalid_route_resources\n", nil
+	}
+	plan := compileRoutes(reg)
+	return plan.nft, plan.ipCommands()
+}
+
+type compiledRoutes struct {
+	nft                 string
+	beforeNFT, afterNFT [][]string
+}
+
+func (p compiledRoutes) ipCommands() [][]string {
+	return append(append([][]string(nil), p.beforeNFT...), p.afterNFT...)
+}
+
+func compileRoutes(reg routeRegistry) compiledRoutes {
+	var plan compiledRoutes
+	rtMu.Lock()
+	defer rtMu.Unlock()
+	byOwner := map[string]routeResource{}
+	for _, r := range reg.active {
+		byOwner[r.Owner] = r
 	}
 	wg, wan, sub := wgMod.iface(), wanIface(), wgMod.subnet()
 	localNetworks, err := parseLocalNetworks(cfg("net.localNetworks", ""))
 	if err != nil {
-		return "error_invalid_local_networks\n", nil
+		return compiledRoutes{nft: "error_invalid_local_networks\n"}
 	}
 	var sets, lines []string
 	mark := func(id string) int {
 		eff, _, _ := resolveExit(id, rt.Policy)
-		return mod(eff).Exit().Mark
+		return int(byOwner[eff].Mark)
 	}
 	emit := func(src string, r Rule, tag string) {
 		exitMark := mark(r.Exit)
@@ -284,7 +304,7 @@ func Compile() (script string, ipCmds [][]string) {
 		// Зарезервированы только биты 16..23 ct mark; остальные биты сохраняются.
 		// Восстанавливаем маршрут только на входе от WG, а не для обратных пакетов.
 		var marks []string
-		for _, r := range resources {
+		for _, r := range reg.reserved {
 			if r.Mark <= 0xff {
 				marks = append(marks, fmt.Sprintf("0x%08x", r.Mark<<16))
 			}
@@ -304,7 +324,12 @@ func Compile() (script string, ipCmds [][]string) {
 		// Старый поток при отказе выхода не должен провалиться в main и обойти запрет.
 		for _, m := range Mods {
 			if e := m.Exit(); e != nil && !e.Block && !m.Status().Up {
-				fmt.Fprintf(&b, "    meta mark 0x%x counter drop comment \"pinned exit unavailable\"\n", e.Mark)
+				fmt.Fprintf(&b, "    meta mark 0x%x counter drop comment \"pinned exit unavailable\"\n", byOwner[m.ID()].Mark)
+			}
+		}
+		for _, r := range reg.reserved {
+			if _, active := byOwner[r.Owner]; !active {
+				fmt.Fprintf(&b, "    meta mark 0x%x counter drop comment \"pinned exit removed\"\n", r.Mark)
 			}
 		}
 	}
@@ -315,19 +340,33 @@ func Compile() (script string, ipCmds [][]string) {
 	}
 	fmt.Fprintf(&b, "  chain nat {\n    type nat hook postrouting priority srcnat; policy accept;\n    ip saddr %s.0/24 oifname != \"%s\" masquerade\n  }\n}\n", sub, wg)
 	for _, m := range Mods {
-		if e := m.Exit(); e != nil && e.Table == 0 && e.Iface != "" && !e.Block {
-			mk := fmt.Sprintf("0x%x", e.Mark)
-			ipCmds = append(ipCmds, []string{"rule", "del", "from", "all", "fwmark", mk, "lookup", "main", "priority", "1200"}, []string{"rule", "add", "fwmark", mk, "lookup", "main", "priority", "1200"})
+		r := byOwner[m.ID()]
+		e := m.Exit()
+		if e == nil || e.Iface == "" || e.Block {
+			continue
 		}
-		if e := m.Exit(); e != nil && e.Table > 0 && e.Iface != "" && m.Status().Up {
-			mk, tb := fmt.Sprintf("0x%x", e.Mark), fmt.Sprint(e.Table)
-			ipCmds = append(ipCmds, []string{"rule", "del", "from", "all", "fwmark", mk, "lookup", tb, "priority", fmt.Sprint(1000 + e.Table)}, []string{"rule", "add", "fwmark", mk, "lookup", tb, "priority", fmt.Sprint(1000 + e.Table)},
-				[]string{"route", "replace", "default", "dev", e.Iface, "table", tb})
+		mk, pref := fmt.Sprintf("0x%x", r.Mark), strconv.Itoa(r.Priority)
+		add := []string{"rule", "add", "fwmark", mk, "lookup", r.Table, "priority", pref}
+		del := []string{"rule", "del", "from", "all", "fwmark", mk, "lookup", r.Table, "priority", pref}
+		if r.Table == "main" {
+			plan.afterNFT = append(plan.afterNFT, del, add)
+			continue
+		}
+		if !m.Status().Up {
+			continue
+		}
+		route := []string{"route", "replace", "default", "dev", e.Iface, "table", r.Table}
+		if r.Mark >= 0x20 {
+			// Publish a new packet mark only after the table and its selector exist.
+			plan.beforeNFT = append(plan.beforeNFT, route, add)
+		} else {
+			plan.afterNFT = append(plan.afterNFT, del, add, route)
 		}
 	}
 	// nfqws2 raw packets must bypass tunnel-wide default routing too.
-	ipCmds = append(ipCmds, []string{"rule", "del", "from", "all", "fwmark", "0x40000000/0x40000000", "lookup", "main", "priority", "1201"}, []string{"rule", "add", "fwmark", "0x40000000/0x40000000", "lookup", "main", "priority", "1201"})
-	return b.String(), ipCmds
+	plan.afterNFT = append(plan.afterNFT, []string{"rule", "del", "from", "all", "fwmark", "0x40000000/0x40000000", "lookup", "main", "priority", "1201"}, []string{"rule", "add", "fwmark", "0x40000000/0x40000000", "lookup", "main", "priority", "1201"})
+	plan.nft = b.String()
+	return plan
 }
 
 // Apply применяет маршруты, если они изменились. Ошибка nft оставляет прежние правила в силе.
@@ -346,11 +385,13 @@ func applyLocked(reason string) error {
 	if routesStarting.Load() {
 		return errors.New("ожидается начальная проверка всех модулей; действующие маршруты сохранены")
 	}
-	if _, err := currentRouteResources(); err != nil {
+	reg, err := resolveRouteRegistry(false)
+	if err != nil {
 		return fmt.Errorf("реестр сетевых ресурсов: %w", err)
 	}
-	script, ipCmds := Compile()
-	ipBytes, _ := json.Marshal(ipCmds)
+	plan := compileRoutes(reg)
+	script := plan.nft
+	ipBytes, _ := json.Marshal(plan.ipCommands())
 	if script == applied && string(ipBytes) == appliedIP {
 		return nil
 	}
@@ -365,13 +406,27 @@ func applyLocked(reason string) error {
 	if err := markRouteKernelChange(); err != nil {
 		return err
 	}
+	// snapshotRoutes validated the full selector at each additional priority.
+	// Keep an existing match installed while refreshing or changing another exit.
+	installed := map[string]bool{}
+	for _, rule := range before.rules {
+		installed[rule[1]] = true
+	}
+	for _, c := range plan.beforeNFT {
+		if c[0] == "rule" && installed[c[len(c)-1]] {
+			continue
+		}
+		if out, code := run("ip", c...); code != 0 {
+			return fmt.Errorf("подготовка дополнительного VPN: ip %v: %s", c, out)
+		}
+	}
 	out, code := S.Run(20*time.Second, script, "nft", "-f", "-")
 	if code != 0 {
 		Decide("ERROR", "Маршруты: nft отклонил правила (%s) → оставлены прежние. %s", reason, strings.TrimSpace(out))
 		return errors.New("nft: " + strings.TrimSpace(out))
 	}
 	if string(ipBytes) != appliedIP {
-		for _, c := range ipCmds {
+		for _, c := range plan.afterNFT {
 			if out, code := run("ip", c...); code != 0 && !(len(c) > 1 && c[0] == "rule" && c[1] == "del") {
 				cause := fmt.Errorf("ip %v: %s", c, out)
 				return cause

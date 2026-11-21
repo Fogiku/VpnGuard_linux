@@ -61,24 +61,19 @@ func snapshotRoutes() (*routeSnapshot, error) {
 			return nil, fmt.Errorf("снимок таблицы nft: %s", s.nft)
 		}
 	}
-	rules, code := run("ip", "-4", "-N", "-o", "rule", "show")
-	if code != 0 {
-		return nil, fmt.Errorf("снимок ip rule: %s", rules)
+	rules, routes, err := readIPv4Routing()
+	if err != nil {
+		return nil, err
 	}
 	for _, line := range strings.Split(rules, "\n") {
 		if args, ok := resourceRule(line, resources); ok {
 			s.rules = append(s.rules, args)
 		}
 	}
-	// show table all работает и при отсутствии частной таблицы.
-	out, code = run("ip", "-4", "-N", "-o", "route", "show", "table", "all")
-	if code != 0 {
-		return nil, fmt.Errorf("снимок маршрутов: %s", out)
-	}
-	if err := checkAdditionalRouteUse(resources, rules, out); err != nil {
+	if err := checkAdditionalRouteUse(resources, rules, routes); err != nil {
 		return nil, err
 	}
-	s.defaults = resourceDefaults(out, resources)
+	s.defaults = resourceDefaults(routes, resources)
 	return s, nil
 }
 

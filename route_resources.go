@@ -7,7 +7,7 @@ import (
 )
 
 // Назначения остаются стабильными: существующие conntrack-потоки используют их
-// после обновления. Новые VPN-модули объявляют уникальную пару Mark/Table в Exit.
+// после обновления. Дополнительные VPN задают пару Mark/Table или запрашивают AutoRoutes.
 type routeResource struct {
 	Owner    string `json:"owner"`
 	Mark     uint32 `json:"mark"`
@@ -57,49 +57,6 @@ func validateRouteResources(resources []routeResource) error {
 		}
 	}
 	return nil
-}
-
-func currentRouteResources() ([]routeResource, error) {
-	resources := legacyRouteResources()
-	seen := map[string]bool{}
-	for _, m := range Mods {
-		if m.ID() == "zapret.raw" {
-			return nil, fmt.Errorf("ID zapret.raw зарезервирован для raw-пакетов")
-		}
-		if seen[m.ID()] {
-			return nil, fmt.Errorf("повторный ID модуля %s", m.ID())
-		}
-		seen[m.ID()] = true
-		e := m.Exit()
-		if e == nil {
-			continue
-		}
-		var existing *routeResource
-		for i := range resources {
-			if resources[i].Owner == m.ID() {
-				existing = &resources[i]
-				break
-			}
-		}
-		table := "main"
-		if e.Table != 0 {
-			table = strconv.Itoa(e.Table)
-		}
-		if e.Block {
-			table = ""
-		}
-		if existing != nil {
-			if e.Mark < 0 || uint32(e.Mark) != existing.Mark || table != existing.Table || (m.ID() == "block") != e.Block {
-				return nil, fmt.Errorf("модуль %s изменил закреплённые сетевые ресурсы", m.ID())
-			}
-		} else {
-			if e.Mark < 0 || uint64(e.Mark) > 0xffffffff {
-				return nil, fmt.Errorf("неверная метка %s", m.ID())
-			}
-			resources = append(resources, routeResource{m.ID(), uint32(e.Mark), 0xffffffff, table, 1000 + e.Table})
-		}
-	}
-	return resources, validateRouteResources(resources)
 }
 
 func resourceTables(resources []routeResource) []string {

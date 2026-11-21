@@ -55,7 +55,7 @@ def owned_rule(line, resources=None):
 
 def defaults(resources=None):
     result = {t: [] for t in route_registry.resource_tables(resources if resources is not None else route_registry.legacy_resources())}
-    for line in run('ip', '-4', '-o', 'route', 'show', 'table', 'all').splitlines():
+    for line in run('ip', '-4', '-N', '-o', 'route', 'show', 'table', 'all').splitlines():
         f = line.split()
         if not f or f[0] != 'default' or 'table' not in f:
             continue
@@ -73,7 +73,7 @@ def snapshot():
     return {
         'nft': run('nft', 'list', 'table', 'inet', 'vpnguard') if 'table inet vpnguard' in tables else '',
         'resources': resources,
-        'rules': [rule for line in run('ip', '-4', '-o', 'rule', 'show').splitlines() if (rule := owned_rule(line, resources))],
+        'rules': [rule for line in run('ip', '-4', '-N', '-o', 'rule', 'show').splitlines() if (rule := owned_rule(line, resources))],
         'defaults': defaults(resources),
     }
 
@@ -88,7 +88,7 @@ def restore_network(state):
             run('ip', '-4', 'route', 'flush', 'table', table, 'default')
         for route in routes:
             run('ip', '-4', 'route', 'add', *route)
-    for line in run('ip', '-4', '-o', 'rule', 'show').splitlines():
+    for line in run('ip', '-4', '-N', '-o', 'rule', 'show').splitlines():
         rule = owned_rule(line, resources)
         if rule:
             run('ip', '-4', 'rule', 'del', *rule)
