@@ -298,6 +298,14 @@ document.addEventListener('pointerup', ev => {
   const rt = RT(); (it.sc === 'o' ? rt.overrides[SELC] : rt.profiles.find(p => p.id === P.id).rules)[it.i].exit = x.dataset.exit; saveRT(rt);
 });
 // ---------------------------------------------------------------- мониторинг
+function qualityWindowLines(page) {
+  const names = {direct:'WAN', meduza:'MeduzaVPN', awg:'AWG'};
+  const metric = (value, unit) => value == null ? '—' : value.toLocaleString('ru-RU', {maximumFractionDigits:2}) + unit;
+  return (page?.paths || []).map(p => names[p.id] + ' · ' + new Date(p.lastAt * 1000).toISOString() +
+    ' · серий ' + p.rounds + ', без статистики ' + p.incomplete + ', ответов ' + (p.sent ? p.received + '/' + p.sent : '—') +
+    ', потери ' + metric(p.lossPct, '%') + ', макс. средний RTT ' + metric(p.maxMeanRttMs, ' мс') +
+    ', макс. ΔRTT ' + metric(p.maxJitterMs, ' мс'));
+}
 function networkTelemetryHtml() {
   const n = S.networkTelemetry; if (!n) return '';
   const ms = v => typeof v === 'number' && Number.isFinite(v) ? v.toFixed(1).replace('.', ',') : '—';
@@ -305,6 +313,7 @@ function networkTelemetryHtml() {
   const stamp = at => at ? new Date(at * 1000).toLocaleTimeString('ru-RU') : 'ожидается';
   const now = Date.now() / 1000, c = n.counters || {}, fresh = c.at && now - c.at <= 20 && n.countersCurrent !== false && !c.error;
   return `<div class="sec">Качество соединений</div><div class="card"><p class="sub">Пять ICMP-пакетов примерно раз в 30 с. RTT — среднее время ответа, ΔRTT — среднее абсолютное изменение между соседними ответами. Потери относятся к ICMP до указанного адреса и не доказывают сбой приложений.</p>${n.qualityEnabled === false ? '<p class="sub">ICMP-измерения выключены в настройках диагностики.</p>' : `<table><tr><th>Путь / адрес</th><th>RTT, мс</th><th>ΔRTT, мс</th><th>Потери</th><th>Ответы</th><th>Измерено</th></tr>${(n.quality || []).map(q => { const fresh = now - q.at <= 45; return `<tr><td>${esc(q.title)}<div class="sub">${esc(q.iface)} → ${esc(q.target)}</div>${q.error ? `<div class="sub">${esc(q.error)}</div>` : ''}</td><td>${fresh ? ms(q.rtt) : '—'}</td><td>${fresh ? ms(q.jitter) : '—'}</td><td>${fresh && q.loss != null ? ms(q.loss) + '%' : '—'}</td><td>${q.loss != null ? count(q.received) + ' / ' + count(q.sent) : '—'}</td><td>${esc(stamp(q.at))}${fresh ? '' : '<div class="sub">устарело</div>'}</td></tr>`; }).join('') || '<tr><td colspan="6" class="sub">Ожидается первая серия измерений.</td></tr>'}</table>`}</div>` +
+    `<div class="card"><div class="sec">Качество за 5 минут</div>${qualityWindowLines(n.qualityWindow).map(line => '<p>' + esc(line) + '</p>').join('') || '<p class="sub">Нет серий за этот период.</p>'}</div>` +
     `<div class="sec">Счётчики правил</div><div class="card"><details class="dev-stage" data-details-key="rule-counters"><summary>Срабатывания правил · ${esc(stamp(c.at))}</summary><p class="sub">Пакеты и байты с момента применения правил. Это счётчики классификации: закреплённые соединения проходят до неё. При новом применении счётчики могут сбрасываться. Отсутствующий счётчик показан прочерком.</p>${c.applied ? `<p class="sub">Применение: ${esc(c.applied)}</p>` : ''}${c.error ? `<p class="c2">${esc(c.error)}</p>` : ''}${!fresh ? '<p class="sub">Ожидаются свежие счётчики.</p>' : ''}<table><tr><th>Правило</th><th>Пакеты</th><th>Байты</th></tr>${(c.rows || []).map(r => `<tr><td>${esc(r.title)}</td><td>${fresh ? count(r.packets) : '—'}</td><td>${fresh ? count(r.bytes) : '—'}</td></tr>`).join('')}</table>${c.truncated ? '<p class="sub">Показаны первые 256 правил.</p>' : ''}</details></div>`;
 }
 async function pMon() {
@@ -335,6 +344,7 @@ async function pMon() {
 function downloadDiagnosticReport(checks, state) {
   const now = new Date().toISOString();
   const flows = state.flowLifecycle;
+  const quality = qualityWindowLines(state.networkTelemetry?.qualityWindow);
   const failed = checks.filter(check => !check.ok).length;
   const updates = state.updates || [];
   const last = updates[updates.length - 1];
@@ -350,6 +360,8 @@ function downloadDiagnosticReport(checks, state) {
       'С начала подписки: открыто ' + flows.opened + ', завершено ' + flows.completed + ', отслеживается ' + flows.active,
       'Без наблюдаемого начала: UPDATE ' + flows.unmatchedUpdates + ', DESTROY ' + flows.unmatchedDestroys
     ] : ['События соединений IPv4: нет свежей сводки']),
+    'Качество ICMP за 5 минут (UTC)',
+    ...(quality.length ? quality : ['Нет серий за этот период.']),
     'Последнее обновление: ' + (last ? last.version + ' · ' + last.status + ' · ' + last.at : 'записей нет'),
     'Проверок: ' + checks.length + ', пройдено: ' + (checks.length - failed) + ', проблем: ' + failed,
     '',

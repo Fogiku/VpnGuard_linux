@@ -76,6 +76,9 @@ func TestNetworkTelemetryOnlyObservesAndExpires(t *testing.T) {
 	defer func() { S = oldS }()
 	s := &observingSys{Sys: S}
 	S = s
+	oldWindow := networkTelemetry.window
+	networkTelemetry.window = nil
+	defer func() { networkTelemetry.window = oldWindow }()
 	oldQuality, oldCounts := networkTelemetry.Quality, networkTelemetry.Counters
 	defer func() { networkTelemetry.Quality, networkTelemetry.Counters = oldQuality, oldCounts }()
 	oldApplied := applyInfo
@@ -106,7 +109,7 @@ func TestNetworkTelemetryOnlyObservesAndExpires(t *testing.T) {
 	}
 	commands := len(s.commands)
 	collectQuality()
-	if len(s.commands) != commands || len(networkTelemetry.Quality) != 0 {
+	if len(s.commands) != commands || len(networkTelemetry.Quality) != 0 || len(networkTelemetry.window) != 0 {
 		t.Fatal("disabled observer still probes")
 	}
 }

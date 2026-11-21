@@ -48,6 +48,7 @@ type ruleCountView struct {
 var networkTelemetry struct {
 	sync.Mutex
 	Quality  []qualityResult
+	window   qualityWindow
 	Counters ruleCountView
 }
 var routeCounterRevision atomic.Uint64
@@ -129,6 +130,7 @@ func collectQuality() {
 	if !cfgBool("net.qualityEnabled", true) {
 		networkTelemetry.Lock()
 		networkTelemetry.Quality = nil
+		networkTelemetry.window = nil
 		networkTelemetry.Unlock()
 		return
 	}
@@ -162,6 +164,10 @@ func collectQuality() {
 	}
 	networkTelemetry.Lock()
 	networkTelemetry.Quality = filtered
+	if networkTelemetry.window == nil {
+		networkTelemetry.window = qualityWindow{}
+	}
+	networkTelemetry.window.record(filtered)
 	networkTelemetry.Unlock()
 }
 
@@ -282,7 +288,7 @@ func networkTelemetryView() map[string]any {
 	networkTelemetry.Lock()
 	defer networkTelemetry.Unlock()
 	quality := append([]qualityResult{}, networkTelemetry.Quality...)
-	return map[string]any{"quality": quality, "qualityEnabled": cfgBool("net.qualityEnabled", true), "counters": networkTelemetry.Counters, "countersCurrent": networkTelemetry.Counters.Revision == routeCounterRevision.Load()}
+	return map[string]any{"qualityWindow": networkTelemetry.window.page(time.Now().Unix()), "quality": quality, "qualityEnabled": cfgBool("net.qualityEnabled", true), "counters": networkTelemetry.Counters, "countersCurrent": networkTelemetry.Counters.Revision == routeCounterRevision.Load()}
 }
 
 func networkHistoryValues(values map[string]float64, now int64) {
