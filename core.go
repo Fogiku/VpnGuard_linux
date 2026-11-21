@@ -4,6 +4,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -69,22 +70,19 @@ func cfgBool(key string, def bool) bool {
 	return v == "true" || v == "1"
 }
 func setCfg(key, val string) error {
+	return setConfigValues(map[string]string{key: val})
+}
+
+func setConfigValues(values map[string]string) error {
 	cfgMu.Lock()
 	defer cfgMu.Unlock()
-	old, had := cfgMap[key]
-	cfgMap[key] = val
-	b, err := json.MarshalIndent(cfgMap, "", "  ")
-	if err == nil {
-		err = saveFile("config.json", b)
+	next := maps.Clone(cfgMap)
+	maps.Copy(next, values)
+	if err := saveJSON("config.json", next); err != nil {
+		return err
 	}
-	if err != nil {
-		if had {
-			cfgMap[key] = old
-		} else {
-			delete(cfgMap, key)
-		}
-	}
-	return err
+	cfgMap = next
+	return nil
 }
 
 // delCfg — вернуть настройку к значению по умолчанию.

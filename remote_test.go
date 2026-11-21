@@ -1,7 +1,9 @@
 package main
 
 import (
+	"maps"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -119,5 +121,29 @@ func TestRemoteDiagnostics(t *testing.T) {
 	}
 	if hideSecrets("PrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=") != "PrivateKey = (скрыт)" {
 		t.Error("hideSecrets: ключ WireGuard")
+	}
+}
+
+func TestRemoteSettingsSaveFailure(t *testing.T) {
+	oldDir, oldConfig := DataDir, cfgMap
+	t.Cleanup(func() { DataDir, cfgMap = oldDir, oldConfig })
+	DataDir = filepath.Join(t.TempDir(), "missing")
+	for _, enabled := range []string{"false", "true"} {
+		before := map[string]string{
+			"remote.enabled": enabled, "remote.token": "test-token-before-change",
+			"remote.until": time.Now().Add(time.Hour).Format(time.RFC3339),
+		}
+		cfgMap = maps.Clone(before)
+		for _, action := range []string{"enable", "newtoken", "disable"} {
+			if msg, err := remMod.Do(action, nil); err == nil || msg != "" {
+				t.Fatalf("%s reported success after save failure", action)
+			}
+			if !maps.Equal(before, cfgMap) {
+				t.Fatalf("%s changed active settings after save failure", action)
+			}
+		}
+		if err := remMod.Set("remote.hours", "4"); err == nil || !maps.Equal(before, cfgMap) {
+			t.Fatal("setting update did not propagate save failure")
+		}
 	}
 }

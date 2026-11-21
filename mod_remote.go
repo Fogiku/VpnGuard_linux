@@ -75,9 +75,16 @@ func lanAddr() string {
 func (m *remoteMod) Tick() {
 	m.tk.Lock()
 	defer m.tk.Unlock()
+	m.tickLocked()
+}
+
+func (m *remoteMod) tickLocked() {
 	if cfgBool("remote.enabled", false) && !time.Now().Before(remoteUntil()) {
-		setCfg("remote.enabled", "false")
-		Decide("INFO", "Удалённая диагностика: время вышло → выключена")
+		if err := setCfg("remote.enabled", "false"); err != nil {
+			Log("ERROR", "Удалённая диагностика: ошибка сохранения истёкшего срока: %v", err)
+		} else {
+			Decide("INFO", "Удалённая диагностика: время вышло → выключена")
+		}
 	}
 	if !remoteOn() {
 		m.setSt(-1, false, "Выключена", "Включите, чтобы разработчик мог получить отчёты с этого шлюза по токену")
@@ -116,7 +123,9 @@ func (m *remoteMod) Set(k, v string) error {
 			return errors.New("срок — от 1 до 168 часов")
 		}
 	}
-	setCfg(k, v)
+	if err := setCfg(k, v); err != nil {
+		return err
+	}
 	go m.Tick()
 	return nil
 }
@@ -128,25 +137,33 @@ func (m *remoteMod) Actions() []Action {
 		{ID: "disable", Title: "Выключить", Danger: true}}
 }
 func (m *remoteMod) Do(id string, _ map[string]string) (string, error) {
+	m.tk.Lock()
+	defer m.tk.Unlock()
 	switch id {
 	case "enable":
-		if !remoteOn() {
-			setCfg("remote.token", newToken())
-		}
 		until := time.Now().Add(time.Duration(cfgInt("remote.hours", 24)) * time.Hour)
-		setCfg("remote.until", until.Format(time.RFC3339))
-		setCfg("remote.enabled", "true")
+		values := map[string]string{"remote.until": until.Format(time.RFC3339), "remote.enabled": "true"}
+		if !remoteOn() {
+			values["remote.token"] = newToken()
+		}
+		if err := setConfigValues(values); err != nil {
+			return "", err
+		}
 		Decide("WARN", "Удалённая диагностика включена до %s", until.Format("02.01 15:04"))
 	case "newtoken":
-		setCfg("remote.token", newToken())
+		if err := setCfg("remote.token", newToken()); err != nil {
+			return "", err
+		}
 		Decide("INFO", "Удалённая диагностика: создан новый токен, прежний не действует")
 	case "disable":
-		setCfg("remote.enabled", "false")
+		if err := setCfg("remote.enabled", "false"); err != nil {
+			return "", err
+		}
 		Decide("INFO", "Удалённая диагностика выключена")
 	default:
 		return "", errors.New("неизвестное действие")
 	}
-	m.Tick()
+	m.tickLocked()
 	return map[string]string{"enable": "Удалённая диагностика включена до " + remoteUntil().Local().Format("02.01 15:04"), "newtoken": "Создан новый токен", "disable": "Удалённая диагностика выключена"}[id], nil
 }
 func (m *remoteMod) Tables() []Table {
