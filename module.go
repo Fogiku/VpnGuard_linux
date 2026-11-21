@@ -36,16 +36,18 @@ type Action struct {
 	Args    []Field `json:"args,omitempty"`
 }
 type Table struct {
-	Title   string     `json:"title"`
-	Cols    []string   `json:"cols"`
-	Rows    [][]string `json:"rows"` // первая ячейка — ключ строки, передаётся действию как row
-	Actions []Action   `json:"actions,omitempty"`
-	Empty   string     `json:"empty,omitempty"`
-	Text    string     `json:"text,omitempty"` // блок текста вместо таблицы (конфиг, журнал)
-	Img     string     `json:"img,omitempty"`  // картинка рядом с текстом (QR-код), data: URI
-	Note    string     `json:"note,omitempty"` // пояснение над содержимым блока
-	File    string     `json:"file,omitempty"` // имя файла: у текста появляются кнопки «Скопировать» и «Скачать»
-	Top     bool       `json:"top,omitempty"`  // показать блок над кнопками управления (вход, предупреждения)
+	ID          string     `json:"id,omitempty"`
+	ProblemRows []int      `json:"problemRows,omitempty"`
+	Title       string     `json:"title"`
+	Cols        []string   `json:"cols"`
+	Rows        [][]string `json:"rows"` // первая ячейка — ключ строки, передаётся действию как row
+	Actions     []Action   `json:"actions,omitempty"`
+	Empty       string     `json:"empty,omitempty"`
+	Text        string     `json:"text,omitempty"` // блок текста вместо таблицы (конфиг, журнал)
+	Img         string     `json:"img,omitempty"`  // картинка рядом с текстом (QR-код), data: URI
+	Note        string     `json:"note,omitempty"` // пояснение над содержимым блока
+	File        string     `json:"file,omitempty"` // имя файла: у текста появляются кнопки «Скопировать» и «Скачать»
+	Top         bool       `json:"top,omitempty"`  // показать блок над кнопками управления (вход, предупреждения)
 }
 type Finding struct {
 	SkipFix bool     `json:"-"`                // Причина сбоя делает штатное исправление неприменимым.

@@ -25,10 +25,11 @@ type historySample struct {
 	Values map[string]float64 `json:"values"`
 }
 type historyArchive struct {
-	Version   int             `json:"version"`
-	SavedAt   int64           `json:"savedAt"`
-	Samples   []historySample `json:"samples"`
-	Decisions []LogLine       `json:"decisions"`
+	MeduzaProbes []meduzaProbeSeries `json:"meduzaProbes,omitempty"`
+	Version      int                 `json:"version"`
+	SavedAt      int64               `json:"savedAt"`
+	Samples      []historySample     `json:"samples"`
+	Decisions    []LogLine           `json:"decisions"`
 }
 type historyStore struct {
 	mu        sync.Mutex
@@ -129,6 +130,9 @@ func loadHistory(now int64) (*historyStore, []LogLine) {
 			s.add(sample.At, sample.Values)
 		}
 	}
+	if m, ok := mod("meduza").(*meduza); ok {
+		m.restoreProbeHistory(archive.MeduzaProbes)
+	}
 	s.savedAt = archive.SavedAt
 	return s, cleanHistoryDecisions(archive.Decisions)
 }
@@ -158,6 +162,11 @@ func (s *historyStore) flush(now int64) error {
 	s.mu.Lock()
 	archive := historyArchive{Version: 1, SavedAt: now, Samples: append([]historySample(nil), s.samples...)}
 	s.mu.Unlock()
+	if m, ok := mod("meduza").(*meduza); ok {
+		m.mu.Lock()
+		archive.MeduzaProbes = append([]meduzaProbeSeries(nil), m.probeHistory...)
+		m.mu.Unlock()
+	}
 	archive.Decisions = cleanHistoryDecisions(snapshotLog(&decRing))
 	first := 0
 	for first < len(archive.Samples) && archive.Samples[first].At <= now-historySeconds {

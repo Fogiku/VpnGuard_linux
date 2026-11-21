@@ -30,3 +30,28 @@ func TestMeduzaProbeHistory(t *testing.T) {
 		t.Fatal("incorrect retention")
 	}
 }
+
+func TestMeduzaProbeCheckpoint(t *testing.T) {
+	oldDir := DataDir
+	DataDir = t.TempDir()
+	m := mod("meduza").(*meduza)
+	oldHistory, oldStart := m.probeHistory, m.startProbeSeries
+	t.Cleanup(func() { DataDir, m.probeHistory, m.startProbeSeries = oldDir, oldHistory, oldStart })
+	m.restoreProbeHistory(nil)
+	at := time.Now()
+	m.recordProbe(at, "ultra", false, true)
+	store := &historyStore{}
+	if err := store.flush(at.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	m.restoreProbeHistory(nil)
+	reloaded, _ := loadHistory(at.Unix())
+	if reloaded.lastError != "" {
+		t.Fatal(reloaded.lastError)
+	}
+	m.recordProbe(at.Add(time.Minute), "ultra", false, true)
+	table := m.probeHistoryTable()
+	if len(table.Rows) != 2 || len(table.ProblemRows) != 2 || table.Rows[1][5] != "1" {
+		t.Fatal("lost checkpoint or merged across restart", table.Rows)
+	}
+}

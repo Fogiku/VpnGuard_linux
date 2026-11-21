@@ -114,13 +114,31 @@ function pHome() {
 }
 // ---------------------------------------------------------------- страница модуля (строится из описания модуля)
 // блок модуля: таблица, текст (конфигурация, журнал) и/или картинка (QR-код); ti — номер блока в m.tables
+let probeProblemsOnly = false;
+function visibleProbeRows(t) {
+  const problems = new Set(t.problemRows || []);
+  return (t.rows || []).filter((row, i) => !probeProblemsOnly || problems.has(i));
+}
+function probeCsv(table) {
+  const quote = value => {
+    const text = String(value);
+    const safe = /^[\s]*[=+@-]/.test(text) ? "'" + text : text;
+    return '"' + safe.replaceAll('"', '""') + '"';
+  };
+  return '\uFEFF' + [table.cols, ...visibleProbeRows(table)].map(row => row.map(quote).join(';')).join('\r\n');
+}
 function blockHtml(t, ti) {
+  let tools = '';
+  if (t.id === 'meduza-probe-history') {
+    tools = `<div class="row"><label><input type="checkbox" data-probe-filter ${probeProblemsOnly ? 'checked' : ''}> Только с ошибками</label><button type="button" data-probe-csv="${ti}">Скачать CSV</button></div>`;
+    t = {...t, rows: visibleProbeRows(t), empty: probeProblemsOnly ? 'Серий с ошибками нет.' : t.empty};
+  }
   const note = t.note ? `<p class="sub" style="margin:0 0 8px">${esc(t.note)}</p>` : '';
   let body;
   if (t.text || t.img) body = `<div class="row" style="align-items:flex-start;gap:16px">${t.img ? `<img class="qr" src="${esc(t.img)}" alt="QR-код">` : ''}<div class="grow" style="min-width:260px">${t.text ? `<pre style="margin:0" id="bt${ti}">${esc(t.text)}</pre>` : ''}${t.file ? `<div class="row" style="margin-top:8px"><button type="button" data-copy="${ti}">Скопировать</button><button type="button" data-dl="${ti}">Скачать ${esc(t.file)}</button></div>` : ''}</div></div>`;
   else if (!t.rows || !t.rows.length) body = `<span class="muted">${esc(t.empty || 'Пусто')}</span>`;
   else body = `<table><tr>${t.cols.map(c => `<th>${esc(c)}</th>`).join('')}${t.actions ? '<th></th>' : ''}</tr>${t.rows.map(r => `<tr>${r.map((c, ci) => `<td class="${String(c).length > 60 ? 'wrap' : ''}">${ci === 0 ? '<b>' + esc(c) + '</b>' : esc(c)}</td>`).join('')}${t.actions ? `<td class="act">${t.actions.map((a, ai) => `<button type="button" class="sq${a.danger ? ' bad' : ''}" data-ta="${ti}:${ai}" data-row="${esc(r[0])}">${esc(a.title)}</button>`).join('')}</td>` : ''}</tr>`).join('')}</table>`;
-  return `<div class="sec">${esc(t.title)}</div><div class="card">${note}${body}</div>`;
+  return `<div class="sec">${esc(t.title)}</div><div class="card">${note}${tools}${body}</div>`;
 }
 // настройки модуля: поля одной группы — отдельный блок с заголовком группы
 function fieldsHtml(m, pre, title) {
@@ -131,6 +149,15 @@ function fieldsHtml(m, pre, title) {
 // кнопки, таблицы, копирование, скачивание и поля модуля внутри root (страница модуля или его блок на другой странице)
 function bindModule(m, root, pre) {
   root = root || $('page'); pre = pre || 'mf';
+  root.querySelectorAll('[data-probe-filter]').forEach(el => { el.onchange = () => { probeProblemsOnly = el.checked; pModule(); }; });
+  root.querySelectorAll('[data-probe-csv]').forEach(el => { el.onclick = () => {
+    const url = URL.createObjectURL(new Blob([probeCsv(m.tables[Number(el.dataset.probeCsv)])], {type:'text/csv;charset=utf-8'}));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'meduza-probes.csv';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }; });
   root.querySelectorAll('[data-ma]').forEach(b => { b.onclick = () => runAction(m.id, m.actions[+b.dataset.ma]); });
   root.querySelectorAll('[data-ta]').forEach(b => { b.onclick = () => { const [ti, ai] = b.dataset.ta.split(':'); runAction(m.id, m.tables[+ti].actions[+ai], b.dataset.row); }; });
   root.querySelectorAll('[data-copy]').forEach(b => { b.onclick = () => navigator.clipboard.writeText(m.tables[+b.dataset.copy].text).then(() => toast('Скопировано'), () => toast('Браузер не дал скопировать — выделите текст вручную', true)); });
@@ -152,7 +179,7 @@ function pModule() {
     (st.kv.length ? `<div class="card"><table class="kv">${st.kv.map(k => `<tr><td>${esc(k[0])}</td><td>${esc(k[1])}</td></tr>`).join('')}</table></div>` : '') + top +
     (m.actions && m.actions.length ? `<div class="sec">Управление</div><div class="row">${m.actions.map((a, i) => `<button type="button" class="${a.danger ? 'bad' : ''}" data-ma="${i}">${esc(a.title)}</button>`).join('')}</div>` : '') +
     (m.fieldsTop ? fieldsHtml(m) + rest : rest + fieldsHtml(m));
-  if (!setHtml(html, PAGE + JSON.stringify([st, m.tables, m.fields, m.actions]))) return;
+  if (!setHtml(html, PAGE + JSON.stringify([st, m.tables, m.fields, m.actions, probeProblemsOnly]))) return;
   bindModule(m);
 }
 // ---------------------------------------------------------------- маршруты

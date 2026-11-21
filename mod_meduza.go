@@ -48,44 +48,45 @@ type mdzLogin struct {
 type meduza struct {
 	loginWork sync.WaitGroup // завершение обновления состояния после входа
 	base
-	probeHistory   []meduzaProbeSeries // protected by base.mu
-	fails          int
-	override       string // запасной протокол, найденный автоподбором
-	ovAt           time.Time
-	fbAt           time.Time // последний перебор протоколов
-	services       []mdzItem
-	protos         []mdzItem
-	devices        [][]string
-	catAt          time.Time
-	catErr         string
-	out            string // вывод последней служебной команды (журнал службы)
-	outTitle       string
-	tests          []mdzTest
-	testAt         string
-	iface          string
-	rx             rate
-	signed         bool
-	conn           bool
-	curProto       string
-	account        string
-	st             map[string]any // последний ответ status --json
-	dcfg           map[string]any // /etc/meduzavpn/config.json
-	lmu            sync.Mutex
-	locationUntil  time.Time
-	locationChange sync.Mutex
-	lg             mdzLogin
-	pmu            sync.Mutex
-	pingRun        sync.Mutex
-	pings          map[string]mdzPing // по id VPN
-	pingAt         time.Time
-	ver            string
-	remote         string
-	remoteAt       time.Time
-	updating       bool
-	restarts       []time.Time
-	restartN       int
-	lastRst        time.Time
-	lastRstWhy     string
+	startProbeSeries bool
+	probeHistory     []meduzaProbeSeries // protected by base.mu
+	fails            int
+	override         string // запасной протокол, найденный автоподбором
+	ovAt             time.Time
+	fbAt             time.Time // последний перебор протоколов
+	services         []mdzItem
+	protos           []mdzItem
+	devices          [][]string
+	catAt            time.Time
+	catErr           string
+	out              string // вывод последней служебной команды (журнал службы)
+	outTitle         string
+	tests            []mdzTest
+	testAt           string
+	iface            string
+	rx               rate
+	signed           bool
+	conn             bool
+	curProto         string
+	account          string
+	st               map[string]any // последний ответ status --json
+	dcfg             map[string]any // /etc/meduzavpn/config.json
+	lmu              sync.Mutex
+	locationUntil    time.Time
+	locationChange   sync.Mutex
+	lg               mdzLogin
+	pmu              sync.Mutex
+	pingRun          sync.Mutex
+	pings            map[string]mdzPing // по id VPN
+	pingAt           time.Time
+	ver              string
+	remote           string
+	remoteAt         time.Time
+	updating         bool
+	restarts         []time.Time
+	restartN         int
+	lastRst          time.Time
+	lastRstWhy       string
 }
 
 const mdzConfPath = "/etc/meduzavpn/config.json"
