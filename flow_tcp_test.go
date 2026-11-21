@@ -123,6 +123,9 @@ func TestTcpFlowPinningIsolatedKernel(t *testing.T) {
 		}
 	}
 	apply()
+	if os.Getenv("VPNGUARD_UDP_RECOVERY") == "1" {
+		t.Run("udp_recovery", func(t *testing.T) { checkUDPRecovery(t, client, server, apply) })
+	}
 	_, serverLine := kernelPython(t, server, `import socket,threading
 def echo(c,peer):
  with c:
