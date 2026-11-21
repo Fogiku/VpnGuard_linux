@@ -9,7 +9,9 @@ import (
 // Замечания пользователя к этапу 1: MeduzaVPN, WG-Server, вкладка «Интернет». Всё — на имитации.
 
 func TestMeduzaLoginQRAndPassword(t *testing.T) {
-	sim := setup(t)
+	setup(t)
+	previousWait := simLoginWait
+	t.Cleanup(func() { simLoginWait = previousWait })
 	simLoginWait = 300 * time.Millisecond
 	m := mod("meduza").(*meduza)
 	// Пинги проверяются отдельно; здесь они не должны пережить временную папку теста.
@@ -38,13 +40,10 @@ func TestMeduzaLoginQRAndPassword(t *testing.T) {
 	if !tb[0].Top || !strings.HasPrefix(tb[0].Img, "data:image/svg+xml;base64,") || !strings.Contains(tb[0].Text, "K7Q2-M9XD") {
 		t.Fatalf("ожидался QR-код картинкой наверху страницы: %+v", tb[0])
 	}
-	for i := 0; i < 40 && !m.signed; i++ {
-		time.Sleep(100 * time.Millisecond)
-	}
+	m.loginWork.Wait()
 	if !m.signed || m.account == "" {
 		t.Fatal("после подтверждения на телефоне вход должен выполниться")
 	}
-	m.loginWork.Wait()
 	// по паролю: неверный пароль — понятная ошибка, верный — вход; пароль не попадает в журнал
 	m.cli("logout")
 	m.readStatus()
@@ -67,7 +66,6 @@ func TestMeduzaLoginQRAndPassword(t *testing.T) {
 	if !m.signed || m.account != "me@example.com" {
 		t.Errorf("ожидался вход как me@example.com, получено %q", m.account)
 	}
-	_ = sim
 }
 
 func TestMeduzaPingAndProfiles(t *testing.T) {
@@ -86,7 +84,8 @@ func TestMeduzaPingAndProfiles(t *testing.T) {
 	}
 	m := mod("meduza").(*meduza)
 	m.catalog(true)
-	m.pingAll(false)
+	m.pingRun.Lock()
+	m.pingRun.Unlock()
 	if got := m.pingText("nl-1"); got != "38 мс" {
 		t.Errorf("пинг nl-1 по ICMP: %q", got)
 	}

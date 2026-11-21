@@ -245,8 +245,9 @@ func (m *meduza) catalog(force bool) {
 	var errs []string
 	sv, c1 := m.cli("list", "--services", "--json")
 	if c1 == 0 {
-		m.services = pickList(sv, "services")
+		services := pickList(sv, "services")
 		m.pmu.Lock()
+		m.services = services
 		for _, service := range m.services {
 			p := m.pings[service.ID]
 			if service.Host != "" && p.Host != service.Host {
@@ -266,7 +267,7 @@ func (m *meduza) catalog(force bool) {
 	m.catErr = strings.Join(errs, "; ")
 	m.readDevices()
 	Log("INFO", "MeduzaVPN: список VPN — %d, протоколов — %d%s", len(m.services), len(m.protos), map[bool]string{true: " (" + m.catErr + ")", false: ""}[m.catErr != ""])
-	go m.pingAll(false)
+	m.startPings(false)
 }
 func firstLine(s string) string {
 	s = strings.TrimSpace(s)
@@ -363,14 +364,22 @@ func measure(hostport string) (float64, string) {
 	return -1, ""
 }
 
+// Reserve the run before returning so a busy request cannot start later.
+func (m *meduza) startPings(rediscover bool) {
+	if !m.pingRun.TryLock() {
+		return
+	}
+	go func() {
+		defer m.pingRun.Unlock()
+		m.pingAll(rediscover)
+	}()
+}
+
 // pingAll — пинг до сервера каждого VPN. Адрес берётся из списка VPN, из status (подключённый VPN)
 // или из профиля подключения (meduzavpn profile); найденный адрес запоминается, профиль повторно не запрашивается.
 func (m *meduza) pingAll(rediscover bool) {
-	if !m.pingRun.TryLock() { // уже идёт
-		return
-	}
-	defer m.pingRun.Unlock()
 	m.pmu.Lock()
+	services := m.services
 	loaded := len(m.pings) > 0
 	m.pmu.Unlock()
 	if !loaded {
@@ -387,7 +396,7 @@ func (m *meduza) pingAll(rediscover bool) {
 	}
 	m.busy("пинг до серверов")
 	defer m.busy("")
-	for _, s := range m.services {
+	for _, s := range services {
 		m.pmu.Lock()
 		p := m.pings[s.ID]
 		m.pmu.Unlock()
@@ -631,8 +640,11 @@ func (m *meduza) Tick() {
 		m.publish(1, false, "Смена локации", "MeduzaVPN переносит VPN, затем шлюз переподключится автоматически")
 		return
 	}
-	if time.Since(m.pingAt) > time.Duration(cfgInt("meduza.pingEveryMin", 30))*time.Minute && len(m.services) > 0 {
-		go m.pingAll(false)
+	m.pmu.Lock()
+	lastPing := m.pingAt
+	m.pmu.Unlock()
+	if time.Since(lastPing) > time.Duration(cfgInt("meduza.pingEveryMin", 30))*time.Minute && len(m.services) > 0 {
+		m.startPings(false)
 	}
 	if !m.conn {
 		if !inetUp() {
@@ -1106,7 +1118,7 @@ func (m *meduza) Do(id string, a map[string]string) (string, error) {
 		}
 		return fmt.Sprintf("VPN: %d, протоколов: %d. Пинг измеряется", len(m.services), len(m.protos)), nil
 	case "ping":
-		go m.pingAll(a["row"] != "")
+		m.startPings(a["row"] != "")
 		return "Пинг измеряется, результаты появятся в списке VPN", nil
 	case "journal":
 		out, _ := run("journalctl", "-u", "meduzavpnd", "-n", "60", "--no-pager")

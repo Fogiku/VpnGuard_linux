@@ -11,6 +11,13 @@ import (
 func setup(t *testing.T) *simSys {
 	t.Helper()
 	DataDir = t.TempDir()
+	if m, ok := mod("meduza").(*meduza); ok {
+		t.Cleanup(func() {
+			m.loginWork.Wait()
+			m.pingRun.Lock()
+			m.pingRun.Unlock()
+		})
+	}
 	Sim = true
 	sim := newSim()
 	S = sim
