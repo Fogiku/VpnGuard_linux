@@ -11,7 +11,7 @@ import (
 func checkUDPRecovery(t *testing.T, client, server string, apply func()) {
 	const counter = `table inet udp_recovery {
 chain egress { type filter hook postrouting priority 150; policy accept;
-udp sport 41008 oifname "out0" counter comment "wrong_exit"
+udp sport {41008,41009} oifname "out0" counter comment "wrong_exit"
 }
 }
 `
@@ -83,14 +83,46 @@ for command in sys.stdin:
 	kernelCommand(t, "ip", "route", "replace", "default", "via", "192.0.3.2", "table", "101")
 	phase(100, 1000, 100)
 	mod("meduza").(*flowTestExit).setSt(2, false, "down", "")
-	rt.Profiles[0].Rules[0].Exit = "direct"
+	// Keep the requested VPN unchanged. Only the fallback policy may authorize Direct.
+	rt.Policy["meduza"] = ExitPolicy{IfDown: "block"}
 	apply()
 	phase(20, 50, 0)
+	checkNewUDPFlow(t, client, 41009, "blocked")
+	rt.Policy["meduza"] = ExitPolicy{Reserve: "direct", IfDown: "block"}
+	apply()
+	phase(20, 50, 0)
+	checkNewUDPFlow(t, client, 41010, "192.0.2.1")
 	mod("meduza").(*flowTestExit).setSt(0, true, "up", "")
 	apply()
 	phase(100, 1000, 100)
+	checkNewUDPFlow(t, client, 41011, "192.0.3.1")
+	delete(rt.Policy, "meduza")
+	rt.Profiles[0].Rules[0].Exit = "direct"
+	apply()
 	out, code := run("nft", "list", "chain", "inet", "udp_recovery", "egress")
 	if code != 0 || !strings.Contains(out, `counter packets 0 bytes 0 comment "wrong_exit"`) {
 		t.Fatalf("unexpected direct egress: %s", out)
 	}
+}
+
+func checkNewUDPFlow(t *testing.T, client string, port int, want string) {
+	t.Helper()
+	const probe = `import socket, sys
+with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+    sock.bind(('10.253.0.2', int(sys.argv[1])))
+    sock.settimeout(1)
+    sock.connect(('198.51.100.5', 9002))
+    sock.send(b'new')
+    try:
+        peer, data = sock.recv(128).split(b'|', 1)
+        assert data == b'new'
+        print(peer.decode())
+    except socket.timeout:
+        print('blocked')
+`
+	out, code := run("nsenter", "-t", client, "-n", "python3", "-c", probe, fmt.Sprint(port))
+	if code != 0 || strings.TrimSpace(out) != want {
+		t.Fatalf("new flow %d: expected %s, got %q (status %d)", port, want, out, code)
+	}
+	t.Logf("new UDP flow %d: %s", port, want)
 }
