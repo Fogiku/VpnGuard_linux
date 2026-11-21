@@ -320,6 +320,19 @@ func compileRoutes(reg routeRegistry) compiledRoutes {
 		fmt.Fprintf(&b, "    meta mark 0x14 ip daddr { %s } return comment \"local management bypass\"\n", strings.Join(localNetworks, ", "))
 	}
 	fmt.Fprintf(&b, "    meta mark 0x%x counter drop\n", mod("block").Exit().Mark)
+	// A missing private-table route can fall through to main before the next health check.
+	for _, m := range Mods {
+		r := byOwner[m.ID()]
+		if r.Table == "" || r.Table == "main" {
+			continue
+		}
+		e := m.Exit()
+		if e == nil || e.Iface == "" {
+			fmt.Fprintf(&b, "    iifname %q meta mark 0x%x counter drop\n", wg, r.Mark)
+			continue
+		}
+		fmt.Fprintf(&b, "    iifname %q meta mark 0x%x oifname != %q counter drop\n", wg, r.Mark, e.Iface)
+	}
 	if cfgBool("net.pinFlows", false) {
 		// Старый поток при отказе выхода не должен провалиться в main и обойти запрет.
 		for _, m := range Mods {

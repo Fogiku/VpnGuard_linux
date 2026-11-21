@@ -188,3 +188,20 @@ n=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);n.bind(('10.253.0.2',41002));n
 		t.Fatal("pinned flow passed forward after exit failure")
 	}
 }
+
+func TestVPNForwardChecksActualEgress(t *testing.T) {
+	setup(t)
+	for _, pin := range []string{"false", "true"} {
+		if err := setCfg("net.pinFlows", pin); err != nil {
+			t.Fatal(err)
+		}
+		script, _ := Compile()
+		for _, id := range []string{"awg", "meduza"} {
+			exit := mod(id).Exit()
+			want := fmt.Sprintf("iifname %q meta mark 0x%x oifname != %q counter drop", wgMod.iface(), exit.Mark, exit.Iface)
+			if !strings.Contains(script, want) {
+				t.Fatalf("missing VPN egress guard with pinning=%s: %s", pin, want)
+			}
+		}
+	}
+}

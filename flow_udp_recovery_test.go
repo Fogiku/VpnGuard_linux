@@ -68,6 +68,20 @@ for command in sys.stdin:
 		t.Logf("confirmed %d/%d, first reply after batch start %d ms (-1 means none)", received, n, first)
 	}
 	phase(100, 1000, 100)
+	// Remove the tunnel device's route while its module still reports Up.
+	kernelCommand(t, "ip", "route", "del", "default", "table", "101")
+	fallback, code := run("ip", "route", "get", "198.51.100.5", "mark", "0x11")
+	if code != 0 || !strings.Contains(fallback, "dev out0") {
+		t.Fatalf("expected kernel fallback to WAN: %s", fallback)
+	}
+	phase(20, 50, 0)
+	kernelCommand(t, "ip", "route", "add", "default", "via", "192.0.3.2", "table", "101")
+	phase(100, 1000, 100)
+	kernelCommand(t, "ip", "link", "set", "out1", "down")
+	phase(20, 50, 0)
+	kernelCommand(t, "ip", "link", "set", "out1", "up")
+	kernelCommand(t, "ip", "route", "replace", "default", "via", "192.0.3.2", "table", "101")
+	phase(100, 1000, 100)
 	mod("meduza").(*flowTestExit).setSt(2, false, "down", "")
 	rt.Profiles[0].Rules[0].Exit = "direct"
 	apply()
