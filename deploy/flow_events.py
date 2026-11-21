@@ -23,6 +23,15 @@ class Registry:
         self.epoch = uuid.uuid4().hex
         self.serial = 0
         self.rows = {}
+        self.completed = 0
+        self.unmatched_updates = 0
+        self.unmatched_destroys = 0
+
+    def frame(self):
+        return {'epoch': self.epoch, 'rows': list(self.rows.values()),
+                'opened': self.serial, 'completed': self.completed,
+                'unmatchedUpdates': self.unmatched_updates,
+                'unmatchedDestroys': self.unmatched_destroys}
 
     @staticmethod
     def key(row):
@@ -36,7 +45,10 @@ class Registry:
         if key is None:
             return
         if kind == 0x102:  # IPCTNL_MSG_CT_DELETE
-            self.rows.pop(key, None)
+            if self.rows.pop(key, None) is None:
+                self.unmatched_destroys += 1
+            else:
+                self.completed += 1
         elif kind == 0x100 and flags & 0x400:  # NLM_F_CREATE: NEW, not UPDATE
             if key not in self.rows and len(self.rows) >= self.limit:
                 self.reset()
@@ -46,6 +58,8 @@ class Registry:
                               'observedNewAt': at, 'row': row}
         elif kind == 0x100 and key in self.rows:
             self.rows[key]['row'] = row
+        elif kind == 0x100:
+            self.unmatched_updates += 1
 
     def datagram(self, data, sender, recv_flags, at):
         try:
@@ -118,7 +132,7 @@ def stream_events():
             while True:
                 now = time.monotonic()
                 if now >= next_heartbeat:
-                    print(json.dumps({'epoch': registry.epoch, 'rows': list(registry.rows.values())}), flush=True)
+                    print(json.dumps(registry.frame()), flush=True)
                     next_heartbeat = now + 1
                 sock.settimeout(max(0.001, next_heartbeat - time.monotonic()))
                 try:

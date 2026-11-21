@@ -54,6 +54,21 @@ class EventTests(unittest.TestCase):
                 r.datagram(data, sender, flags, 3)
             self.assertFalse(r.rows)
 
+    def test_completed_between_heartbeats_and_unmatched_events(self):
+        r = Registry()
+        row = self.row()
+        r.apply(0x100, 0, row, 1)
+        r.apply(0x100, 0x600, row, 2)
+        r.apply(0x102, 0, row, 3)
+        r.apply(0x102, 0, row, 4)
+        self.assertEqual(r.frame(), dict(epoch=r.epoch, rows=[], opened=1, completed=1,
+                                         unmatchedUpdates=1, unmatchedDestroys=1))
+        epoch = r.epoch
+        r.reset()
+        self.assertNotEqual(epoch, r.epoch)
+        self.assertEqual(r.frame(), dict(epoch=r.epoch, rows=[], opened=0, completed=0,
+                                         unmatchedUpdates=0, unmatchedDestroys=0))
+
     def test_missing_id_cannot_establish_lifetime(self):
         r = Registry()
         r.apply(0x100, 0x600, self.row(None), 1)

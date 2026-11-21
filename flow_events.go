@@ -21,7 +21,20 @@ type flowLifetime struct {
 	ObservedNewAt float64 `json:"observedNewAt"`
 	Row           flowRow `json:"row"`
 }
+type lifecycleCounters struct {
+	Opened            uint64 `json:"opened"`
+	Completed         uint64 `json:"completed"`
+	UnmatchedUpdates  uint64 `json:"unmatchedUpdates"`
+	UnmatchedDestroys uint64 `json:"unmatchedDestroys"`
+}
+type lifecycleSummary struct {
+	Epoch  string `json:"epoch"`
+	At     int64  `json:"at"`
+	Active int    `json:"active"`
+	lifecycleCounters
+}
 type flowEventFrame struct {
+	lifecycleCounters
 	Epoch string         `json:"epoch"`
 	Rows  []flowLifetime `json:"rows"`
 }
@@ -105,11 +118,14 @@ func (s *flowEventSession) stop() {
 	s.frame = flowEventFrame{}
 	s.mu.Unlock()
 }
-func (s *flowEventSession) status() (int, bool) {
+func (s *flowEventSession) summary() *lifecycleSummary {
+	if s == nil {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.failed || s.frame.Epoch == "" || time.Since(s.last) > 4*time.Second {
-		return 0, false
+		return nil
 	}
-	return len(s.frame.Rows), true
+	return &lifecycleSummary{Epoch: s.frame.Epoch, At: s.last.Unix(), Active: len(s.frame.Rows), lifecycleCounters: s.frame.lifecycleCounters}
 }

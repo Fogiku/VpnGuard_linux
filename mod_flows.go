@@ -127,6 +127,12 @@ func (m *flowModule) snapshotCounts() *flowCounts {
 	return counts
 }
 
+func (m *flowModule) lifecycle() *lifecycleSummary {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.events.summary()
+}
+
 func (m *flowModule) Tables() []Table {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -143,8 +149,11 @@ func (m *flowModule) Tables() []Table {
 		note += " Снимок: " + m.at.Format(time.RFC3339)
 	}
 	if m.events != nil {
-		count, ready := m.events.status()
-		note += fmt.Sprintf(" События: готовность %t, поколений %d.", ready, count)
+		if summary := m.events.summary(); summary != nil {
+			note += fmt.Sprintf(" С начала подписки открыто %d, завершено %d, отслеживается %d. Без наблюдаемого начала: UPDATE %d, DESTROY %d.", summary.Opened, summary.Completed, summary.Active, summary.UnmatchedUpdates, summary.UnmatchedDestroys)
+		} else {
+			note += " Нет свежих данных подписки на события."
+		}
 	}
 	return []Table{{Title: "Соединения IPv4", Cols: []string{"ID", "Протокол", "Источник", "Назначение", "ct mark", "Приложение", "Conntrack ID", "Zone"}, Rows: rows, Empty: "Нет снимка", Note: note + " Conntrack ID может повторно использоваться; он не доказывает непрерывность соединения между снимками."}}
 }

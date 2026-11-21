@@ -334,6 +334,7 @@ async function pMon() {
 // ---------------------------------------------------------------- диагностика
 function downloadDiagnosticReport(checks, state) {
   const now = new Date().toISOString();
+  const flows = state.flowLifecycle;
   const failed = checks.filter(check => !check.ok).length;
   const updates = state.updates || [];
   const last = updates[updates.length - 1];
@@ -344,6 +345,11 @@ function downloadDiagnosticReport(checks, state) {
     'Версия: ' + state.version,
     'Режим: ' + (state.sim ? 'имитация' : 'шлюз'),
     'Маршрутизация готова: ' + (state.routingReady ? 'да' : 'нет'),
+    ...(flows ? [
+      'События соединений IPv4 (UTC): ' + new Date(flows.at * 1000).toISOString(),
+      'С начала подписки: открыто ' + flows.opened + ', завершено ' + flows.completed + ', отслеживается ' + flows.active,
+      'Без наблюдаемого начала: UPDATE ' + flows.unmatchedUpdates + ', DESTROY ' + flows.unmatchedDestroys
+    ] : ['События соединений IPv4: нет свежей сводки']),
     'Последнее обновление: ' + (last ? last.version + ' · ' + last.status + ' · ' + last.at : 'записей нет'),
     'Проверок: ' + checks.length + ', пройдено: ' + (checks.length - failed) + ', проблем: ' + failed,
     '',
