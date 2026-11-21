@@ -1,5 +1,7 @@
 import importlib.util
 import json
+import os
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -60,11 +62,32 @@ class GuardTests(unittest.TestCase):
             self.assertEqual(self.binary.read_text(), 'previous')
         return ''
 
-    def prepare(self, settings=None):
-        with patch.object(guard, 'run', self.command), patch.object(guard, 'snapshot', return_value={}), patch.object(guard, 'identity', return_value={'tunnel': {'state': 'connected'}}):
+    def prepare(self, settings=None, command=None):
+        with patch.object(guard, 'run', command or self.command), patch.object(guard, 'snapshot', return_value={}), patch.object(guard, 'identity', return_value={'tunnel': {'state': 'connected'}}):
             guard.prepare(str(self.candidate), '1.0', guard.hashlib.sha256(self.candidate.read_bytes()).hexdigest(), settings)
         directory = next(guard.BASE.glob('*/job.json')).parent
         return directory, json.loads((directory / 'job.json').read_text())
+
+    def test_prepare_from_noexec_volume(self):
+        volume = Path(os.environ.get('VPNGUARD_NOEXEC_DIR', '/dev/shm'))
+        if not volume.is_dir() or not os.access(volume, os.W_OK) or not (
+                os.statvfs(volume).f_flag & getattr(os, 'ST_NOEXEC', 0)):
+            self.skipTest('requires writable noexec volume')
+        real_run = guard.run
+        with tempfile.TemporaryDirectory(dir=volume) as stage:
+            self.candidate = Path(stage) / 'vpnguard'
+            self.candidate.write_text('#!/bin/sh\ncase "$1" in --version) echo 1.0;; --check-network-settings) exit 0;; *) exit 1;; esac\n')
+            self.candidate.chmod(0o700)
+            with self.assertRaises(PermissionError):
+                subprocess.run([str(self.candidate), '--version'], check=True)
+            def dispatch(*args, **kwargs):
+                if '--version' in args or '--check-network-settings' in args:
+                    return real_run(*args, **kwargs)
+                return self.command(*args, **kwargs)
+
+            with patch.object(guard, 'BASE', Path(stage) / 'backups'):
+                _, job = self.prepare({'net.pinFlows': 'false'}, dispatch)
+                self.assertEqual(job['status'], 'installed')
 
     def test_timer_armed_before_install_and_rollback_restores_files(self):
         directory, job = self.prepare()
