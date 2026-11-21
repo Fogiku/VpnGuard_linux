@@ -48,6 +48,7 @@ type mdzLogin struct {
 type meduza struct {
 	loginWork sync.WaitGroup // завершение обновления состояния после входа
 	base
+	probeHistory   []meduzaProbeSeries // protected by base.mu
 	fails          int
 	override       string // запасной протокол, найденный автоподбором
 	ovAt           time.Time
@@ -644,6 +645,7 @@ func (m *meduza) Tick() {
 	up, secondary := false, false
 	if m.conn {
 		up, secondary = m.probeTraffic()
+		m.recordProbe(time.Now(), m.curProto, up, secondary)
 	}
 	if up {
 		if m.fails > 0 {
@@ -1215,6 +1217,7 @@ func (m *meduza) Tables() []Table {
 	case lg.Result != "" && !m.signed:
 		t = append(t, Table{Title: "Вход", Text: lg.Result, Top: true})
 	}
+	t = append(t, m.probeHistoryTable())
 	var sv [][]string
 	cur := cfg("meduza.serviceId", "")
 	for _, s := range m.services {
