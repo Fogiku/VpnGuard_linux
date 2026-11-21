@@ -1,0 +1,13 @@
+{
+  "id": "17",
+  "reason": "legacy recovery test",
+  "status": "pending",
+  "kernelChanged": true,
+  "routesExisted": false,
+  "network": {},
+  "before": {
+    "nft": "table inet vpnguard {\n chain original {\n }\n}\n",
+    "rules": [["priority", "1101", "from", "all", "fwmark", "0x11", "lookup", "101"]],
+    "defaults": {"101": ["default dev old0 table 101"]}
+  }
+}
