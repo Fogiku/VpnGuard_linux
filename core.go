@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const Version = "1.9.14"
+const Version = "1.9.15"
 
 var (
 	DataDir string
@@ -180,6 +180,7 @@ func Subscribe(f func(ev, data string)) {
 	subsMu.Unlock()
 }
 func Emit(ev, data string) {
+	controllerEvents.record(ev, data)
 	subsMu.RLock()
 	defer subsMu.RUnlock()
 	for _, f := range subs {
