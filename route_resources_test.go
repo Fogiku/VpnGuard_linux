@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRouteResourcesRejectCollisionsBeforeMutation(t *testing.T) {
@@ -123,5 +124,61 @@ func TestAdditionalVPNRecoveryIsolatedKernel(t *testing.T) {
 		if !strings.Contains(routes, "old0") || strings.Contains(routes, "new0") || !strings.Contains(foreign, "old0") || !strings.Contains(rules, "1103:") || !strings.Contains(rules, "1104:") {
 			t.Fatalf("recovery lost own/foreign resources: %s %s %s", routes, foreign, rules)
 		}
+	}
+}
+
+type occupiedRouteSys struct {
+	*transactionSys
+	rules, routes string
+}
+
+func (s occupiedRouteSys) Run(d time.Duration, in, name string, args ...string) (string, int) {
+	switch name + " " + strings.Join(args, " ") {
+	case "ip -4 -N -o rule show":
+		return s.rules, 0
+	case "ip -4 -N -o route show table all":
+		return s.routes, 0
+	default:
+		return s.transactionSys.Run(d, in, name, args...)
+	}
+}
+
+func TestAdditionalExitRejectsForeignKernelResources(t *testing.T) {
+	const own = "1103: from all fwmark 0x20 lookup 103"
+	for _, tc := range []struct {
+		name, rules, routes string
+		conflict            bool
+	}{
+		{"empty", "", "", false},
+		{"occupied priority", "1103: from all lookup 254", "", true},
+		{"foreign selector", "1103: from 192.0.2.1 fwmark 0x20 lookup 103", "", true},
+		{"second rule points at table", own + "\n90: from all lookup 103", "", true},
+		{"duplicate rule", own + "\n" + own, "", true},
+		{"identical mark in another table", "300: from all fwmark 0x20 lookup 200", "", true},
+		{"intersecting mask", "300: from all fwmark 0x20/0xf0 lookup 200", "", true},
+		{"disjoint mask", "300: from all fwmark 0x30/0xf0 lookup 200", "", false},
+		{"reserved vendor mark", "300: not from all fwmark 0x20 lookup 200", "", true},
+		{"preexisting default", "", "default dev tunnel0 table 103", true},
+		{"foreign prefix", own, "192.0.2.0/24 dev eth1 table 103", true},
+		{"own default", own, "default dev tunnel0 table 103", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := transactionSetup(t)
+			mods := Mods
+			t.Cleanup(func() { Mods = mods })
+			Mods = append(append([]Module{}, Mods...), &flowTestExit{id: "vpn2", mark: 0x20, table: 103})
+			S = occupiedRouteSys{tx, tc.rules, tc.routes}
+			err := Apply("kernel ownership")
+			if (err != nil) != tc.conflict {
+				t.Fatalf("unexpected result: %v", err)
+			}
+			if tc.conflict {
+				for _, c := range tx.commands {
+					if c == "nft -f -" || strings.HasPrefix(c, "ip rule del") || strings.HasPrefix(c, "ip route replace") {
+						t.Fatalf("mutation on conflict: %s", c)
+					}
+				}
+			}
+		})
 	}
 }

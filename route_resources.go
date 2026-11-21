@@ -112,6 +112,19 @@ func resourceTables(resources []routeResource) []string {
 	return tables
 }
 
+func parseFWMark(value string) (mark, mask uint32, ok bool) {
+	rawMark, rawMask, masked := strings.Cut(value, "/")
+	m, err := strconv.ParseUint(rawMark, 0, 32)
+	if err != nil {
+		return 0, 0, false
+	}
+	if !masked {
+		return uint32(m), 0xffffffff, true
+	}
+	n, err := strconv.ParseUint(rawMask, 0, 32)
+	return uint32(m), uint32(n), err == nil
+}
+
 func resourceRule(line string, resources []routeResource) ([]string, bool) {
 	f := strings.Fields(line)
 	if len(f) != 7 || f[1] != "from" || f[2] != "all" || f[3] != "fwmark" || f[5] != "lookup" {
@@ -121,22 +134,78 @@ func resourceRule(line string, resources []routeResource) ([]string, bool) {
 	if err != nil {
 		return nil, false
 	}
-	parts := strings.Split(f[4], "/")
-	mark, err := strconv.ParseUint(parts[0], 0, 32)
-	if err != nil || len(parts) > 2 {
+	mark, mask, ok := parseFWMark(f[4])
+	if !ok {
 		return nil, false
 	}
-	mask := uint64(0xffffffff)
-	if len(parts) == 2 {
-		mask, err = strconv.ParseUint(parts[1], 0, 32)
-		if err != nil {
-			return nil, false
-		}
+	table := f[6]
+	if table == "254" {
+		table = "main"
 	}
 	for _, r := range resources {
-		if r.Priority != 0 && priority == r.Priority && mark == uint64(r.Mark) && mask == uint64(r.Mask) && f[6] == r.Table {
+		if r.Priority != 0 && priority == r.Priority && mark == r.Mark && mask == r.Mask && table == r.Table {
 			return append([]string{"priority", strconv.Itoa(priority)}, f[1:]...), true
 		}
 	}
 	return nil, false
+}
+
+// Check foreign selectors before including an additional exit in a recovery snapshot.
+// Numeric output makes named routing tables visible under their registered IDs too.
+func checkAdditionalRouteUse(resources []routeResource, rules, routes string) error {
+	extras := resources[len(legacyRouteResources()):]
+	if len(extras) == 0 {
+		return nil
+	}
+	hasOwnRule := map[string]bool{}
+	for _, line := range strings.Split(rules, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		priority, err := strconv.Atoi(strings.TrimSuffix(fields[0], ":"))
+		if err != nil {
+			return fmt.Errorf("не удалось прочитать приоритет правила IPv4")
+		}
+		for _, r := range extras {
+			if _, own := resourceRule(line, []routeResource{r}); own {
+				if hasOwnRule[r.Table] {
+					return fmt.Errorf("VPN %s: правило с приоритетом %d продублировано", r.Owner, priority)
+				}
+				hasOwnRule[r.Table] = true
+				continue
+			}
+			if priority == r.Priority {
+				return fmt.Errorf("VPN %s: приоритет %d уже занят другим правилом", r.Owner, priority)
+			}
+			for i := 1; i+1 < len(fields); i++ {
+				if fields[i] == "fwmark" {
+					mark, mask, ok := parseFWMark(fields[i+1])
+					if !ok {
+						return fmt.Errorf("не удалось прочитать fwmark правила %d", priority)
+					}
+					if (mark^r.Mark)&mask&r.Mask == 0 {
+						return fmt.Errorf("VPN %s: метка %#x пересекается с fwmark правила %d", r.Owner, r.Mark, priority)
+					}
+				}
+				if (fields[i] == "lookup" || fields[i] == "table") && fields[i+1] == r.Table {
+					return fmt.Errorf("VPN %s: таблицу %s использует другое правило", r.Owner, r.Table)
+				}
+			}
+		}
+	}
+	for _, line := range strings.Split(routes, "\n") {
+		fields := strings.Fields(line)
+		for i := 1; i+1 < len(fields); i++ {
+			if fields[i] != "table" {
+				continue
+			}
+			for _, r := range extras {
+				if fields[i+1] == r.Table && (!hasOwnRule[r.Table] || fields[0] != "default") {
+					return fmt.Errorf("VPN %s: таблица %s уже содержит сторонний маршрут", r.Owner, r.Table)
+				}
+			}
+		}
+	}
+	return nil
 }

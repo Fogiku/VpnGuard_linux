@@ -306,7 +306,7 @@ function downloadDiagnosticReport(checks, state) {
   const failed = checks.filter(check => !check.ok).length;
   const updates = state.updates || [];
   const last = updates[updates.length - 1];
-  // Only export check labels and outcomes. Raw findings and logs can contain local addresses or credentials.
+  // Only export check labels, outcomes and explicit shareable details. Raw findings and logs can contain local addresses or credentials.
   const lines = [
     'VpnGuard Linux · Отчёт диагностики',
     'Создан (UTC): ' + now,
@@ -316,7 +316,8 @@ function downloadDiagnosticReport(checks, state) {
     'Последнее обновление: ' + (last ? last.version + ' · ' + last.status + ' · ' + last.at : 'записей нет'),
     'Проверок: ' + checks.length + ', пройдено: ' + (checks.length - failed) + ', проблем: ' + failed,
     '',
-    ...checks.map(check => [check.ok ? 'OK' : 'СБОЙ', check.at, check.module, check.id, check.title].join(' | '))
+    ...checks.flatMap(check => [[check.ok ? 'OK' : 'СБОЙ', check.at, check.module, check.id, check.title].join(' | '),
+      ...(check.report || []).map(line => '  ' + line)])
   ];
   const url = URL.createObjectURL(new Blob(['\uFEFF', lines.join('\r\n') + '\r\n'], {type: 'text/plain;charset=utf-8'}));
   const link = document.createElement('a');

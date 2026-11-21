@@ -1,27 +1,27 @@
 package main
 
 import (
-	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
 type zapretProbeSys struct {
 	Sys
+	mu        sync.Mutex
 	script    string
 	localPort bool
 	bindIP    bool
 	failStart bool
 }
 
-func (s *zapretProbeSys) WriteFile(path, text string, mode os.FileMode) error {
-	if path == "/run/vpnguard-zapret-probe.nft" {
-		s.script = text
-	}
-	return s.Sys.WriteFile(path, text, mode)
-}
 func (s *zapretProbeSys) Run(d time.Duration, in, name string, args ...string) (string, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if name == "nft" && strings.HasPrefix(in, "create table inet vpnguard_zapret_probe") {
+		s.script = in
+	}
 	if s.failStart && name == "systemctl" && len(args) > 0 && args[0] == "is-active" {
 		return "failed", 3
 	}

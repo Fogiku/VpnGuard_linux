@@ -61,19 +61,22 @@ func snapshotRoutes() (*routeSnapshot, error) {
 			return nil, fmt.Errorf("снимок таблицы nft: %s", s.nft)
 		}
 	}
-	out, code = run("ip", "-4", "-o", "rule", "show")
+	rules, code := run("ip", "-4", "-N", "-o", "rule", "show")
 	if code != 0 {
-		return nil, fmt.Errorf("снимок ip rule: %s", out)
+		return nil, fmt.Errorf("снимок ip rule: %s", rules)
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for _, line := range strings.Split(rules, "\n") {
 		if args, ok := resourceRule(line, resources); ok {
 			s.rules = append(s.rules, args)
 		}
 	}
 	// show table all работает и при отсутствии частной таблицы.
-	out, code = run("ip", "-4", "-o", "route", "show", "table", "all")
+	out, code = run("ip", "-4", "-N", "-o", "route", "show", "table", "all")
 	if code != 0 {
 		return nil, fmt.Errorf("снимок маршрутов: %s", out)
+	}
+	if err := checkAdditionalRouteUse(resources, rules, out); err != nil {
+		return nil, err
 	}
 	s.defaults = resourceDefaults(out, resources)
 	return s, nil
@@ -121,7 +124,7 @@ func (s *routeSnapshot) restore() error {
 		}
 	}
 	// Сначала таблицы и правила, затем соответствующие им метки nft.
-	current, routeCode := run("ip", "-4", "-o", "route", "show", "table", "all")
+	current, routeCode := run("ip", "-4", "-N", "-o", "route", "show", "table", "all")
 	if routeCode != 0 {
 		return fmt.Errorf("откат: чтение маршрутов: %s", current)
 	}
@@ -137,7 +140,7 @@ func (s *routeSnapshot) restore() error {
 			exec("ip", append([]string{"-4", "route", "add"}, strings.Fields(line)...)...)
 		}
 	}
-	out, code := run("ip", "-4", "-o", "rule", "show")
+	out, code := run("ip", "-4", "-N", "-o", "rule", "show")
 	if code != 0 {
 		failures = append(failures, "не удалось прочитать ip rule при откате")
 	} else {

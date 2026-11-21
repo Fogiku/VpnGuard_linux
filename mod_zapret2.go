@@ -25,7 +25,6 @@ type zapret2 struct {
 	fails    int
 	retryAt  time.Time
 	startErr string
-	okCount  int
 }
 
 const zUnit, zArgs = "vpnguard-nfqws2", "/etc/vpnguard/nfqws2.args"
@@ -93,12 +92,59 @@ func (m *zapret2) apply(i int) bool {
 	m.running = m.strat[i].Name
 	return true
 }
-func (m *zapret2) check() int {
+
+type siteCheck struct {
+	passed, total int
+	setupError    string
+	report        []string
+}
+
+func (s siteCheck) summary() string {
+	if s.setupError != "" {
+		return s.setupError
+	}
+	return fmt.Sprintf("Открывается %d из %d", s.passed, s.total)
+}
+
+func probeResourcesAvailable() string {
+	rules, code := run("ip", "-4", "rule", "show", "pref", "1198")
+	if code != 0 {
+		return "Не удалось прочитать правила маршрутизации для проверки"
+	}
+	if strings.TrimSpace(rules) != "" {
+		return "Приоритет 1198 занят, проверка сайтов пропущена"
+	}
+	tables, code := run("nft", "list", "tables")
+	if code != 0 {
+		return "Не удалось прочитать список таблиц nftables"
+	}
+	for _, line := range strings.Split(tables, "\n") {
+		if strings.TrimSpace(line) == "table inet vpnguard_zapret_probe" {
+			return "Таблица nftables для проверки уже занята"
+		}
+	}
+	return ""
+}
+
+func (m *zapret2) check() (result siteCheck) {
 	m.probeMu.Lock()
 	defer m.probeMu.Unlock()
-	m.sites = nil
-	m.startErr = ""
-	m.okCount = 0
+	var rows [][]string
+	defer func() {
+		m.mu.Lock()
+		m.sites = rows
+		m.mu.Unlock()
+	}()
+	targets := m.targets()
+	result.total = len(targets)
+	if len(targets) == 0 {
+		result.setupError = "Список целей пуст"
+		return
+	}
+	if reason := probeResourcesAvailable(); reason != "" {
+		result.setupError = reason
+		return
+	}
 	addressOutput, addressCode := run("ip", "-4", "-o", "addr", "show", "dev", wanIface(), "scope", "global")
 	address := ""
 	fields := strings.Fields(addressOutput)
@@ -109,33 +155,26 @@ func (m *zapret2) check() int {
 		}
 	}
 	if addressCode != 0 || net.ParseIP(address) == nil {
-		m.startErr = "IPv4-адрес интерфейса провайдера не найден"
-		return 0
+		result.setupError = "IPv4-адрес интерфейса провайдера не найден"
+		return
 	}
 	// Probe only our curl source ports. Client routing and other local traffic stay untouched.
-	script := fmt.Sprintf("table inet vpnguard_zapret_probe\ndelete table inet vpnguard_zapret_probe\ntable inet vpnguard_zapret_probe { chain route_probe { type route hook output priority mangle; policy accept; meta mark & 0x40000000 != 0 return; tcp sport 42000-42099 tcp dport {80,443} meta mark set 0x1e; }\n chain output { type filter hook postrouting priority mangle; policy accept; meta mark 0x1e oifname %q tcp sport 42000-42099 tcp dport { 80, 443 } ct original packets 1-9 counter queue num 200 bypass; }\n}\n", wanIface())
-	run("ip", "rule", "del", "fwmark", "0x1e", "lookup", "main", "priority", "1198")
-	if out, code := run("ip", "rule", "add", "fwmark", "0x1e", "lookup", "main", "priority", "1198"); code != 0 {
-		m.startErr = "Маршрут проверки zapret2: " + firstLine(out)
-		return 0
-	}
-	defer run("ip", "rule", "del", "fwmark", "0x1e", "lookup", "main", "priority", "1198")
-	path := "/run/vpnguard-zapret-probe.nft"
-	if err := S.WriteFile(path, script, 0o600); err != nil {
-		m.startErr = "Не удалось подготовить правила тестирования zapret2"
-		return 0
-	}
-	defer S.Remove(path)
-	if out, code := run("nft", "-f", path); code != 0 {
-		m.startErr = "Не удалось включить NFQUEUE для теста: " + firstLine(out)
-		return 0
+	script := fmt.Sprintf("create table inet vpnguard_zapret_probe\ntable inet vpnguard_zapret_probe { chain route_probe { type route hook output priority mangle; policy accept; meta mark & 0x40000000 != 0 return; tcp sport 42000-42099 tcp dport {80,443} meta mark set 0x1e; }\n chain output { type filter hook postrouting priority mangle; policy accept; meta mark 0x1e oifname %q tcp sport 42000-42099 tcp dport { 80, 443 } ct original packets 1-9 counter queue num 200 bypass; }\n}\n", wanIface())
+	if _, code := S.Run(20*time.Second, script, "nft", "-f", "-"); code != 0 {
+		result.setupError = "Не удалось применить временные правила nftables для проверки"
+		return
 	}
 	defer run("nft", "delete", "table", "inet", "vpnguard_zapret_probe")
+	if _, code := run("ip", "rule", "add", "fwmark", "0x1e", "lookup", "main", "priority", "1198"); code != 0 {
+		result.setupError = "Не удалось создать правило маршрутизации проверки"
+		return
+	}
+	defer run("ip", "rule", "del", "fwmark", "0x1e", "lookup", "main", "priority", "1198")
 	if cfgBool("zapret.videoCheck", true) {
 		m.discoverVideo(address)
 	}
-	targets := m.targets()
-	rows := make([][]string, len(targets))
+	rows = make([][]string, len(targets))
+	report := make([]string, len(targets))
 	passed := make([]bool, len(targets))
 	var probes sync.WaitGroup
 	slots := make(chan struct{}, 3)
@@ -145,18 +184,19 @@ func (m *zapret2) check() int {
 			defer probes.Done()
 			slots <- struct{}{}
 			defer func() { <-slots }()
-			rows[i], passed[i] = m.checkTarget(address, target)
+			var detail string
+			rows[i], detail, passed[i] = m.checkTarget(address, target)
+			report[i] = reportTarget(target, i) + " | " + detail
 		}(i, target)
 	}
 	probes.Wait()
-	m.sites = rows
+	result.report = report
 	for _, ok := range passed {
 		if ok {
-			m.okCount++
+			result.passed++
 		}
 	}
-	m.checkedAt = time.Now()
-	return m.okCount
+	return
 }
 func (m *zapret2) index(name string) int {
 	for i, s := range m.strat {
@@ -171,6 +211,14 @@ func (m *zapret2) index(name string) int {
 func (m *zapret2) pick() bool {
 	m.busy("подбор стратегии")
 	defer m.busy("")
+	m.probeMu.Lock()
+	reason := probeResourcesAvailable()
+	m.probeMu.Unlock()
+	if reason != "" {
+		m.startErr = reason
+		return false
+	}
+	previous := m.index(m.running)
 	best, bestN := -1, 0
 	for i := range m.strat {
 		if !m.apply(i) {
@@ -178,8 +226,16 @@ func (m *zapret2) pick() bool {
 			continue
 		}
 		time.Sleep(time.Duration(cfgInt("zapret.settleMs", 300)) * time.Millisecond)
-		n := m.check()
-		m.strat[i].Last = fmt.Sprintf("%d из %d", n, len(m.targets()))
+		check := m.check()
+		if check.setupError != "" {
+			if previous >= 0 && previous != i {
+				m.apply(previous)
+			}
+			m.startErr = check.setupError
+			return false
+		}
+		n := check.passed
+		m.strat[i].Last = check.summary()
 		if n > bestN {
 			best, bestN = i, n
 		}
@@ -241,7 +297,13 @@ func (m *zapret2) Tick() {
 	if !m.checkedAt.IsZero() && time.Since(m.checkedAt) < time.Duration(max(1, cfgInt("zapret.healthCheckMin", 10)))*time.Minute && m.Status().State != "" {
 		return
 	}
-	n, all := m.check(), len(m.targets())
+	check := m.check()
+	if check.setupError != "" {
+		m.setSt(1, m.Status().Up && active(zUnit), "Проверка сайтов недоступна", check.setupError)
+		return
+	}
+	m.checkedAt = time.Now()
+	n, all := check.passed, check.total
 	kv := [][2]string{{"Стратегия", m.running}, {"Сайты", fmt.Sprintf("%d из %d открываются", n, all)}, {"Служба", zUnit}}
 	if n == all && active(zUnit) {
 		m.fails = 0
@@ -318,7 +380,8 @@ func (m *zapret2) Do(id string, a map[string]string) (string, error) {
 		go func() { m.tk.Lock(); m.pick(); m.tk.Unlock(); m.Tick() }()
 		return "Подбор запущен, результаты появятся в таблице", nil
 	case "check":
-		return fmt.Sprintf("Открывается %d из %d", m.check(), len(m.targets())), nil
+		check := m.check()
+		return check.summary(), nil
 	case "restart":
 		run("systemctl", "restart", zUnit)
 		return "nfqws2 перезапущен", nil
@@ -353,6 +416,9 @@ func (m *zapret2) Do(id string, a map[string]string) (string, error) {
 }
 func (m *zapret2) Tables() []Table {
 	m.load()
+	m.mu.Lock()
+	sites := m.sites
+	m.mu.Unlock()
 	var rows [][]string
 	for _, s := range m.strat {
 		st := ""
@@ -361,7 +427,7 @@ func (m *zapret2) Tables() []Table {
 		}
 		rows = append(rows, []string{s.Name, s.Args, s.Last, st})
 	}
-	return []Table{{Title: "Проверка сайтов", Cols: []string{"Проверка", "Результат", "Подробности"}, Rows: m.sites, Empty: "Проверка ещё не выполнялась", Note: "HTTP 403/404 у корня сайта означает, что сервер ответил. Gateway проверяется по HTTPS. Скорость — загрузка JS плеера, как в Windows; воспроизведение ролика, WebSocket и голос Discord здесь не проверяются."},
+	return []Table{{Title: "Проверка сайтов", Cols: []string{"Проверка", "Результат", "Подробности"}, Rows: sites, Empty: "Проверка ещё не выполнялась", Note: "HTTP 403/404 у корня сайта означает, что сервер ответил. Gateway проверяется по HTTPS. Скорость — загрузка JS плеера, как в Windows; воспроизведение ролика, WebSocket и голос Discord здесь не проверяются."},
 		{Title: "Стратегии", Cols: []string{"Название", "Параметры nfqws2", "Последний подбор", "Состояние"}, Rows: rows,
 			Actions: []Action{{ID: "select", Title: "Выбрать"}, {ID: "delete", Title: "Удалить", Danger: true, Confirm: "Удалить стратегию?"}}}}
 }
@@ -377,8 +443,11 @@ func (m *zapret2) Checks() []Check {
 			}},
 		{ID: "zapret.sites", Title: "Сайты открываются напрямую через zapret2", FixTitle: "Переподобрать стратегию",
 			Run: func() Finding {
-				n := m.check()
-				return Finding{OK: n == len(m.targets()), Text: fmt.Sprintf("%d из %d", n, len(m.targets())), Hint: "Провайдер мог сменить способ блокировки — нужен переподбор стратегии"}
+				check := m.check()
+				if check.setupError != "" {
+					return Finding{SkipFix: true, Text: check.setupError, Report: []string{check.setupError}, Hint: "Проверьте условия запуска теста на шлюзе"}
+				}
+				return Finding{OK: check.passed == check.total, Text: check.summary(), Report: check.report, Hint: "Подробности по каждой цели есть в отчёте проверки"}
 			},
 			Fix: func() (string, error) {
 				m.retryAt = time.Time{}

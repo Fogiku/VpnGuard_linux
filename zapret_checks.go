@@ -34,7 +34,7 @@ func parseZProbe(text string, exit int, speed bool) zProbeResult {
 	if len(f) > 2 {
 		r.Seconds, _ = strconv.ParseFloat(f[2], 64)
 	}
-	valid := len(r.Code) == 3 && r.Code[0] >= '1' && r.Code[0] <= '5'
+	valid := len(r.Code) == 3 && r.Code[0] >= '1' && r.Code[0] <= '5' && r.Code[1] >= '0' && r.Code[1] <= '9' && r.Code[2] >= '0' && r.Code[2] <= '9'
 	if !valid {
 		r.Detail = "нет HTTP-ответа"
 		switch exit {
@@ -111,7 +111,24 @@ func (m *zapret2) discoverVideo(address string) {
 		m.videoAt = time.Now()
 	}
 }
-func (m *zapret2) checkTarget(address, target string) ([]string, bool) {
+
+// Arbitrary target URLs may contain local names, credentials or signed paths.
+func reportTarget(target string, index int) string {
+	switch target {
+	case "ytvideo":
+		return "YouTube · видеосервер"
+	case "ytspeed":
+		return "YouTube · загрузка JS плеера"
+	}
+	for _, known := range strings.Split(zapretDefaultTargets, ",") {
+		if target == known {
+			return strings.TrimPrefix(known, "https://")
+		}
+	}
+	return fmt.Sprintf("Своя цель №%d", index+1)
+}
+
+func (m *zapret2) checkTarget(address, target string) ([]string, string, bool) {
 	label, url := target, target
 	speed := target == "ytspeed"
 	if speed {
@@ -127,7 +144,7 @@ func (m *zapret2) checkTarget(address, target string) ([]string, bool) {
 		}
 	}
 	if url == "" {
-		return []string{label, "не проверено", "Не удалось определить адрес напрямую через zapret2"}, false
+		return []string{label, "не проверено", "Не удалось определить адрес напрямую через zapret2"}, "не проверено · не удалось определить адрес цели", false
 	}
 	args := zCurlArgs(address)
 	if speed {
@@ -142,5 +159,5 @@ func (m *zapret2) checkTarget(address, target string) ([]string, bool) {
 	if r.OK {
 		state = "проходит"
 	}
-	return []string{label, state, r.Detail + " · " + url}, r.OK
+	return []string{label, state, r.Detail + " · " + url}, state + " · " + r.Detail, r.OK
 }

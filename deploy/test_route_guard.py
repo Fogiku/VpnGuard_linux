@@ -17,9 +17,9 @@ class RouteGuardTests(unittest.TestCase):
         calls = []
         def command(*args, **kwargs):
             calls.append(args)
-            if args == ('ip', '-4', '-o', 'route', 'show', 'table', 'all'):
+            if args == ('ip', '-4', '-N', '-o', 'route', 'show', 'table', 'all'):
                 return 'default dev new0 table 103\ndefault dev foreign0 table 104\n'
-            if args == ('ip', '-4', '-o', 'rule', 'show'):
+            if args == ('ip', '-4', '-N', '-o', 'rule', 'show'):
                 return '1103: from all fwmark 0x20 lookup 103\n1104: from all fwmark 0x21 lookup 104\n'
             return ''
         with patch.object(guard, 'run', command):
@@ -27,6 +27,10 @@ class RouteGuardTests(unittest.TestCase):
         self.assertIn(('ip', '-4', 'route', 'flush', 'table', '103', 'default'), calls)
         self.assertIn(('ip', '-4', 'route', 'add', 'default', 'dev', 'old0', 'table', '103'), calls)
         self.assertFalse(any('104' in args or '1104' in args for args in calls))
+
+    def test_main_table_is_recognized_in_numeric_output(self):
+        rule = guard.owned_rule("1201: from all fwmark 0x40000000/0x40000000 lookup 254")
+        self.assertEqual(rule, ["priority", "1201", "from", "all", "fwmark", "0x40000000/0x40000000", "lookup", "254"])
 
     def test_invalid_registry_is_rejected_before_any_command(self):
         resources = guard.legacy_resources() + [dict(owner='vpn2', mark=0x20, mask=0xffffffff, table='52807', priority=53807)]

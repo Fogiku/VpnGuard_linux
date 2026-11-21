@@ -89,15 +89,16 @@ def owned_rule(line, resources=None):
         mask = int(parts[1], 16 if parts[1].startswith('0x') else 10) if len(parts) == 2 else 0xffffffff
     except ValueError:
         return None
+    table = 'main' if fields[6] == '254' else fields[6]
     if len(parts) > 2 or not any(r['priority'] and (str(r['priority']), r['mark'], r['mask'], r['table']) ==
-                                (priority, mark, mask, fields[6]) for r in (resources if resources is not None else legacy_resources())):
+                                (priority, mark, mask, table) for r in (resources if resources is not None else legacy_resources())):
         return None
     return ['priority', priority, *fields[1:]]
 
 
 def defaults(resources=None):
     result = {t: [] for t in resource_tables(resources if resources is not None else legacy_resources())}
-    for line in run('ip', '-4', '-o', 'route', 'show', 'table', 'all').splitlines():
+    for line in run('ip', '-4', '-N', '-o', 'route', 'show', 'table', 'all').splitlines():
         fields = line.split()
         if fields and fields[0] == 'default' and 'table' in fields:
             table = fields[fields.index('table') + 1]
@@ -117,7 +118,7 @@ def restore_network(before):
                 run('ip', '-4', 'route', 'flush', 'table', table, 'default')
             for line in routes:
                 run('ip', '-4', 'route', 'add', *line.split())
-    for line in run('ip', '-4', '-o', 'rule', 'show').splitlines():
+    for line in run('ip', '-4', '-N', '-o', 'rule', 'show').splitlines():
         rule = owned_rule(line, resources)
         if rule:
             run('ip', '-4', 'rule', 'del', *rule)

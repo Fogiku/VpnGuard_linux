@@ -47,9 +47,11 @@ type Table struct {
 	Top     bool       `json:"top,omitempty"`  // показать блок над кнопками управления (вход, предупреждения)
 }
 type Finding struct {
-	OK   bool   `json:"ok"`
-	Text string `json:"text"`
-	Hint string `json:"hint,omitempty"`
+	SkipFix bool     `json:"-"`                // Причина сбоя делает штатное исправление неприменимым.
+	Report  []string `json:"report,omitempty"` // Одобренные для выгрузки подробности проверки.
+	OK      bool     `json:"ok"`
+	Text    string   `json:"text"`
+	Hint    string   `json:"hint,omitempty"`
 }
 type Check struct {
 	ID       string

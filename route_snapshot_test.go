@@ -9,7 +9,7 @@ import (
 )
 
 func TestOwnedRulesExcludeVendorAndCustomRules(t *testing.T) {
-	for _, line := range []string{"1101: from all fwmark 0x11 lookup 101", "1201: from all fwmark 0x40000000/0x40000000 lookup main"} {
+	for _, line := range []string{"1101: from all fwmark 0x11 lookup 101", "1201: from all fwmark 0x40000000/0x40000000 lookup main", "1201: from all fwmark 0x40000000/0x40000000 lookup 254"} {
 		if _, ok := ownedRule(line); !ok {
 			t.Fatalf("owned rule missed: %s", line)
 		}
@@ -41,9 +41,9 @@ func (s *transactionSys) Run(d time.Duration, in, name string, args ...string) (
 		return "table inet vpnguard\n", 0
 	case "nft list table inet vpnguard":
 		return "table inet vpnguard { chain original {} }\n", 0
-	case "ip -4 -o rule show":
+	case "ip -4 -N -o rule show":
 		return "1101: from all fwmark 0x11 lookup 101\n28814: from all fwmark 0x4d555052 lookup 52807\n", 0
-	case "ip -4 -o route show table all":
+	case "ip -4 -N -o route show table all":
 		return "default dev old0 table 101 scope link\n", 0
 	}
 	return s.Sys.Run(d, in, name, args...)

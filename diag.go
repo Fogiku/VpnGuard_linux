@@ -9,14 +9,15 @@ import (
 )
 
 type CheckRes struct {
-	ID       string `json:"id"`
-	Module   string `json:"module"`
-	Title    string `json:"title"`
-	FixTitle string `json:"fixTitle,omitempty"`
-	OK       bool   `json:"ok"`
-	Text     string `json:"text"`
-	Hint     string `json:"hint,omitempty"`
-	At       string `json:"at"`
+	Report   []string `json:"report,omitempty"`
+	ID       string   `json:"id"`
+	Module   string   `json:"module"`
+	Title    string   `json:"title"`
+	FixTitle string   `json:"fixTitle,omitempty"`
+	OK       bool     `json:"ok"`
+	Text     string   `json:"text"`
+	Hint     string   `json:"hint,omitempty"`
+	At       string   `json:"at"`
 }
 
 var (
@@ -32,10 +33,10 @@ func runChecks() []CheckRes {
 		}
 		for _, c := range m.Checks() {
 			f := c.Run()
-			r := CheckRes{ID: c.ID, Module: m.Name(), Title: c.Title, OK: f.OK, Text: f.Text, At: time.Now().Format("15:04:05")}
+			r := CheckRes{ID: c.ID, Module: m.Name(), Title: c.Title, OK: f.OK, Text: f.Text, Report: f.Report, At: time.Now().Format("15:04:05")}
 			if !f.OK {
 				r.Hint = f.Hint
-				if c.Fix != nil {
+				if c.Fix != nil && !f.SkipFix {
 					r.FixTitle = c.FixTitle
 				}
 			}
