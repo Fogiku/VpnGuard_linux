@@ -1,12 +1,12 @@
 {
-  "version": "1.9.3",
-  "source": "20c7933ed72404aec58d26d8ed7364826137b302",
+  "version": "1.9.4",
+  "source": "ee795725bd038cb0e00ae4871725d3d51d44af57",
   "sha256": {
-    "amd64": "e16f82e3b312158195d7982b4b3f81666f80a72cc604b5c851fac2a439855e7c",
-    "arm64": "242b490ed52e5282922bbbf593220eb06674f0716850f327d1fda703326014da"
+    "amd64": "0d59e169ae5eda16a77a9f747b5f9f23f52b370d1ad4213a102e622acf1a5dbe",
+    "arm64": "705d42fa2c8ff36d28ef19602d8179d075f16e628f0833e648e49fa0aefaf562"
   },
   "helpers": {
-    "guarded_update.py": "f55813e1b8816273bec7a8c5a637dfd7c0dbb2e7343b08b83db9956eeda51acf",
+    "guarded_update.py": "5718925053bff8c1ee658067370ef82fe3d30599280c3a71ae6e8570487a9371",
     "route_guard.py": "bda39fa92512ae004fe671178e02ecd014b64e9edc2b39b1824ecff05550afcf"
   }
 }
