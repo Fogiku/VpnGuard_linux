@@ -22,6 +22,7 @@ var (
 	logMu   sync.Mutex
 	logRing []LogLine
 	decRing []LogLine
+	subsMu  sync.RWMutex
 	subs    []func(ev, data string)
 	limMu   sync.Mutex
 	limits  = map[string][]time.Time{}
@@ -175,8 +176,14 @@ func snapshotLog(ring *[]LogLine) []LogLine {
 }
 
 // События между модулями: tunnel.down, tunnel.up, exit.changed, routes.changed …
-func Subscribe(f func(ev, data string)) { subs = append(subs, f) }
+func Subscribe(f func(ev, data string)) {
+	subsMu.Lock()
+	subs = append(subs, f)
+	subsMu.Unlock()
+}
 func Emit(ev, data string) {
+	subsMu.RLock()
+	defer subsMu.RUnlock()
 	for _, f := range subs {
 		go f(ev, data)
 	}
