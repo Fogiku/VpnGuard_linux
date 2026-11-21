@@ -51,15 +51,22 @@ func buildState() map[string]any {
 		mods = append(mods, map[string]any{"id": m.ID(), "name": m.Name(), "color": m.Color(), "status": st, "fields": m.Fields(),
 			"actions": acts, "tables": m.Tables(), "exit": m.Exit() != nil, "metrics": m.Metrics(), "page": hasPage(m), "fieldsTop": fieldsFirst(m), "aux": isAux(m)})
 		if m.Exit() != nil {
-			p, has := rt.Policy[m.ID()]
 			exits = append(exits, map[string]any{"id": m.ID(), "name": m.Name(), "color": m.Color(), "up": st.Up, "level": st.Level, "state": st.State,
-				"why": st.Why, "policy": m.ID() != "direct" && m.ID() != "block", "reserve": p.Reserve, "ifDown": map[bool]string{true: p.IfDown, false: "block"}[has && p.IfDown != ""]})
+				"why": st.Why, "policy": m.ID() != "direct" && m.ID() != "block"})
 		}
 	}
 	applyMu.Lock()
 	info, canRb := applyInfo, previousState != nil
 	applyMu.Unlock()
 	rtMu.Lock()
+	for _, exit := range exits {
+		policy := rt.Policy[exit["id"].(string)]
+		exit["reserve"] = policy.Reserve
+		if policy.IfDown == "" {
+			policy.IfDown = "block"
+		}
+		exit["ifDown"] = policy.IfDown
+	}
 	var profs []map[string]any
 	for _, p := range rt.Profiles {
 		profs = append(profs, map[string]any{"id": p.ID, "name": p.Name, "rules": viewRules(p.Rules)})
