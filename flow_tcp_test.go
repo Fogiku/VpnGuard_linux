@@ -137,6 +137,9 @@ while True:
 	if serverLine() != "ready" {
 		t.Fatal("echo server not ready")
 	}
+	if os.Getenv("VPNGUARD_FLOW_LOAD") == "1" {
+		checkEstablishedFlowsUnderLoad(t, client, apply)
+	}
 	input, line := kernelPython(t, client, `import socket,sys
 def connect(port):
  s=socket.socket();s.settimeout(5);s.bind(('10.253.0.2',port));s.connect(('198.51.100.5',9001));return s
@@ -199,4 +202,61 @@ sys.stdin.readline();new.settimeout(5);print(receive(new,len(b'during-down')+10)
 	if len(match) != 2 || match[1] == "0" {
 		t.Fatalf("management output did not use main: %s", counts)
 	}
+}
+
+// Exercise existing sockets while the default for newly classified connections changes.
+func checkEstablishedFlowsUnderLoad(t *testing.T, client string, apply func()) {
+	t.Helper()
+	input, line := kernelPython(t, client, `import concurrent.futures, socket, sys, threading, time
+ready = threading.Barrier(5, timeout=6)
+stop = threading.Event()
+def stream():
+    with socket.create_connection(('198.51.100.5', 9001), timeout=4) as sock:
+        expected = b'192.0.2.1|x'
+        count = 0
+        while not stop.is_set():
+            sock.sendall(b'x')
+            response = bytearray()
+            while len(response) < len(expected):
+                part = sock.recv(len(expected)-len(response))
+                if not part: raise RuntimeError('closed TCP connection')
+                response.extend(part)
+            if response != expected: raise RuntimeError('established flow changed exit')
+            count += 1
+            if count == 1: ready.wait()
+            time.sleep(0.02)
+        return count
+with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+    workers = [pool.submit(stream) for _ in range(4)]
+    ready.wait()
+    print('ready', flush=True)
+    sys.stdin.readline()
+    stop.set()
+    print(' '.join(str(w.result()) for w in workers), flush=True)
+`)
+	if line() != "ready" {
+		t.Fatal("TCP load did not start")
+	}
+	start := time.Now()
+	for i := 0; i < 12; i++ {
+		for _, exit := range []string{"meduza", "direct"} {
+			rt.Profiles[0].Rules[0].Exit = exit
+			apply()
+			time.Sleep(time.Second)
+		}
+	}
+	if _, err := io.WriteString(input, "stop\n"); err != nil {
+		t.Fatal(err)
+	}
+	counts := strings.Fields(line())
+	if len(counts) != 4 {
+		t.Fatalf("missing stream results: %v", counts)
+	}
+	for _, value := range counts {
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 24 {
+			t.Fatalf("insufficient confirmed exchanges: %v", counts)
+		}
+	}
+	t.Logf("24 policy changes over %s, acknowledged TCP exchanges per socket: %v", time.Since(start).Round(time.Millisecond), counts)
 }
