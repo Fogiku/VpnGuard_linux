@@ -4,6 +4,7 @@
 package main
 
 import (
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -95,10 +96,16 @@ type base struct {
 	met map[string]float64
 }
 
-func (b *base) Status() Status { b.mu.Lock(); defer b.mu.Unlock(); return b.st }
+func (b *base) Status() Status {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	st := b.st
+	st.KV = slices.Clone(st.KV)
+	return st
+}
 func (b *base) setSt(level int, up bool, state, why string, kv ...[2]string) {
 	b.mu.Lock()
-	b.st.Level, b.st.Up, b.st.State, b.st.Why, b.st.KV = level, up, state, why, kv
+	b.st.Level, b.st.Up, b.st.State, b.st.Why, b.st.KV = level, up, state, why, slices.Clone(kv)
 	b.mu.Unlock()
 }
 func (b *base) busy(s string) { b.mu.Lock(); b.st.Busy = s; b.mu.Unlock() }
