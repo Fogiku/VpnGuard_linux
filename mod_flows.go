@@ -24,9 +24,10 @@ type flowRow struct {
 }
 type flowModule struct {
 	base
-	rows   []flowRow
-	at     time.Time
-	events *flowEventSession
+	rows      []flowRow
+	at        time.Time
+	truncated bool
+	events    *flowEventSession
 }
 
 var flowsMod = &flowModule{}
@@ -89,6 +90,7 @@ func (m *flowModule) Tick() {
 	}
 	m.mu.Lock()
 	m.rows = view.Rows
+	m.truncated = view.Truncated
 	m.at = time.Now()
 	m.mu.Unlock()
 	why := "Только IPv4 TCP/UDP; приложение Unknown. Это снимок таблицы ядра, не история и не измерение скорости."
@@ -99,6 +101,32 @@ func (m *flowModule) Tick() {
 	}
 	m.setSt(level, false, "Снимок соединений", why)
 }
+
+type flowCounts struct {
+	At        int64 `json:"at"`
+	TCP       int   `json:"tcp"`
+	UDP       int   `json:"udp"`
+	Truncated bool  `json:"truncated"`
+}
+
+func (m *flowModule) snapshotCounts() *flowCounts {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.at.IsZero() {
+		return nil
+	}
+	counts := &flowCounts{At: m.at.Unix(), Truncated: m.truncated}
+	for _, row := range m.rows {
+		switch row.Protocol {
+		case "tcp":
+			counts.TCP++
+		case "udp":
+			counts.UDP++
+		}
+	}
+	return counts
+}
+
 func (m *flowModule) Tables() []Table {
 	m.mu.Lock()
 	defer m.mu.Unlock()

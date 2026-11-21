@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -37,9 +38,12 @@ func TestFlowObserverClearsFailedAndDisabledSnapshots(t *testing.T) {
 	if len(m.rows) != 1 || m.Tables()[0].Rows[0][5] != "Unknown" {
 		t.Fatal("snapshot or unknown classification lost")
 	}
+	if counts := m.snapshotCounts(); counts == nil || counts.UDP != 1 || counts.TCP != 0 || counts.Truncated {
+		t.Fatalf("wrong collector totals: %+v", counts)
+	}
 	s.code = 1
 	m.Tick()
-	if len(m.rows) != 0 || !m.at.IsZero() || m.Status().Level != 1 {
+	if m.snapshotCounts() != nil || len(m.rows) != 0 || !m.at.IsZero() || m.Status().Level != 1 {
 		t.Fatal("failed collector retained stale snapshot")
 	}
 	if err := m.Set("flows.enabled", "false"); err != nil {
@@ -50,4 +54,28 @@ func TestFlowObserverClearsFailedAndDisabledSnapshots(t *testing.T) {
 	if s.calls != calls {
 		t.Fatal("disabled collector kept running")
 	}
+}
+
+func TestRemoteFlowCounts(t *testing.T) {
+	setup(t)
+	token := newToken()
+	setCfg("remote.token", token)
+	setCfg("remote.enabled", "true")
+	setCfg("remote.until", time.Now().Add(time.Hour).Format(time.RFC3339))
+	old := flowsMod
+	flowsMod = &flowModule{}
+	t.Cleanup(func() { flowsMod = old })
+	check := func(want string) {
+		t.Helper()
+		code, body := remoteGet("/v1/diagnostics/flows", token, "127.0.0.1")
+		if code != 200 || strings.TrimSpace(body) != want {
+			t.Fatalf("status %d, body %s", code, body)
+		}
+	}
+	check(`{"schemaVersion":1,"snapshot":null}`)
+	flowsMod.at = time.Unix(123, 0)
+	check(`{"schemaVersion":1,"snapshot":{"at":123,"tcp":0,"udp":0,"truncated":false}}`)
+	flowsMod.rows = []flowRow{{Protocol: "udp", Source: "private"}, {Protocol: "tcp", Destination: "private"}, {Protocol: "udp"}}
+	flowsMod.truncated = true
+	check(`{"schemaVersion":1,"snapshot":{"at":123,"tcp":1,"udp":2,"truncated":true}}`)
 }

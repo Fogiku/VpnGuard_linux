@@ -204,7 +204,7 @@ func hideSecrets(s string) string {
 	return reImageData.ReplaceAllString(s, "(картинка скрыта)")
 }
 
-var remotePaths = []string{"/", "/status", "/check", "/diag", "/decisions", "/net", "/system", "/files", "/logs", "/bundle", "/cmd", "/v1/diagnostics/snapshot", "/v1/diagnostics/explanation", "/v1/diagnostics/events", "/v1/diagnostics/telemetry"}
+var remotePaths = []string{"/", "/status", "/check", "/diag", "/decisions", "/net", "/system", "/files", "/logs", "/bundle", "/cmd", "/v1/diagnostics/snapshot", "/v1/diagnostics/explanation", "/v1/diagnostics/events", "/v1/diagnostics/telemetry", "/v1/diagnostics/flows"}
 
 func clientIP(r *http.Request) net.IP {
 	h, _, _ := net.SplitHostPort(r.RemoteAddr)
@@ -245,7 +245,7 @@ func remoteServe(w http.ResponseWriter, r *http.Request) {
 		remMod.reqs = remMod.reqs[len(remMod.reqs)-100:]
 	}
 	remMod.rmu.Unlock()
-	if path != "/status" && path != "/v1/diagnostics/events" && path != "/v1/diagnostics/telemetry" {
+	if path != "/status" && path != "/v1/diagnostics/events" && path != "/v1/diagnostics/telemetry" && path != "/v1/diagnostics/flows" {
 		Log("INFO", "Удалённая диагностика: %s запросил %s", from, desc)
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -264,13 +264,20 @@ func remoteServe(w http.ResponseWriter, r *http.Request) {
 		text(remoteIndex())
 	case "/v1/diagnostics/events":
 		serveDiagnosticEvents(w, r)
-	case "/v1/diagnostics/snapshot", "/v1/diagnostics/explanation", "/v1/diagnostics/telemetry":
+	case "/v1/diagnostics/snapshot", "/v1/diagnostics/explanation", "/v1/diagnostics/telemetry", "/v1/diagnostics/flows":
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
 			http.Error(w, "требуется GET", http.StatusMethodNotAllowed)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if path == "/v1/diagnostics/flows" {
+			_ = json.NewEncoder(w).Encode(struct {
+				SchemaVersion int         `json:"schemaVersion"`
+				Snapshot      *flowCounts `json:"snapshot"`
+			}{1, flowsMod.snapshotCounts()})
+			return
+		}
 		if path == "/v1/diagnostics/telemetry" {
 			_ = json.NewEncoder(w).Encode(telemetry.diagnosticWindow(time.Now().Unix()))
 			return
@@ -318,6 +325,7 @@ func remoteIndex() string {
 	return fmt.Sprintf(`VpnGuard для Linux %s — удалённая диагностика
 Время шлюза: %s · включена до %s · команды: %s
 
+/v1/diagnostics/flows   число TCP- и UDP-соединений в последнем снимке IPv4
 /v1/diagnostics/telemetry   история DNS и состояния MeduzaVPN за пять минут
 /v1/diagnostics/events   изменения после cursor или снимок для восстановления
 /v1/diagnostics/explanation   объяснение состояния по снимку (JSON, схема 1)
