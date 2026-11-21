@@ -27,6 +27,7 @@ type flowModule struct {
 	rows      []flowRow
 	at        time.Time
 	truncated bool
+	dpi       *Table
 	events    *flowEventSession
 }
 
@@ -39,10 +40,10 @@ func (m *flowModule) Color() string         { return "#49b8e8" }
 func (m *flowModule) Aux() bool             { return true }
 func (m *flowModule) Period() time.Duration { return 15 * time.Second }
 func (m *flowModule) Fields() []Field {
-	return []Field{{Key: "flows.enabled", Title: "Собирать снимки соединений", Type: "bool", Value: cfg("flows.enabled", "false"), Help: "Чтение conntrack IPv4 раз в 15 секунд, до 512 записей. Адреса хранятся только в памяти. nDPI пока не подключён."}, {Key: "flows.eventsEnabled", Title: "Наблюдать жизненный цикл соединений", Type: "bool", Value: cfg("flows.eventsEnabled", "false"), Help: "Нужен включённый сбор снимков. Подписка NEW/UPDATE/DESTROY, до 512 поколений в памяти. Потеря heartbeat сбрасывает поколения. DPI пока не применяется."}}
+	return []Field{{Key: "flows.enabled", Title: "Собирать снимки соединений", Type: "bool", Value: cfg("flows.enabled", "false"), Help: "Чтение conntrack IPv4 раз в 15 секунд, до 512 записей. Адреса хранятся только в памяти. Распознавание nDPI включается отдельно."}, {Key: "flows.eventsEnabled", Title: "Наблюдать жизненный цикл соединений", Type: "bool", Value: cfg("flows.eventsEnabled", "false"), Help: "Нужен включённый сбор снимков. Подписка NEW/UPDATE/DESTROY, до 512 поколений в памяти. Потеря heartbeat сбрасывает поколения. Метки приложений к поколениям не привязаны."}, {Key: "flows.dpiEnabled", Title: "Пассивное распознавание nDPI", Type: "bool", Value: cfg("flows.dpiEnabled", "false"), Help: "Короткие выборки IPv4 TCP/UDP на интерфейсе WG-Server. Нужны сбор снимков, Python 3 и ndpiReader 4.2.0."}}
 }
 func (m *flowModule) Set(k, v string) error {
-	if k != "flows.enabled" && k != "flows.eventsEnabled" {
+	if k != "flows.enabled" && k != "flows.eventsEnabled" && k != "flows.dpiEnabled" {
 		return errNoField
 	}
 	if v != "true" && v != "false" {
@@ -58,6 +59,14 @@ func (m *flowModule) Tick() {
 	m.tk.Lock()
 	defer m.tk.Unlock()
 	m.syncEvents()
+	var dpi *Table
+	if cfgBool("flows.enabled", false) && cfgBool("flows.dpiEnabled", false) {
+		sample := sampleDPITable(wgMod.iface())
+		dpi = &sample
+	}
+	m.mu.Lock()
+	m.dpi = dpi
+	m.mu.Unlock()
 	if !cfgBool("flows.enabled", false) {
 		m.mu.Lock()
 		m.rows = nil
@@ -144,7 +153,7 @@ func (m *flowModule) Tables() []Table {
 		}
 		rows = append(rows, []string{strconv.Itoa(i), r.Protocol, fmt.Sprintf("%s:%d", r.Source, r.SourcePort), fmt.Sprintf("%s:%d", r.Destination, r.DestinationPort), fmt.Sprintf("0x%08x", r.Mark), "Unknown", id, strconv.Itoa(int(r.Zone))})
 	}
-	note := "nDPI не подключён. Порт 443 не доказывает HTTPS/QUIC; ECH и приложения не определяются. Маршруты не изменяются."
+	note := "Индивидуальная привязка nDPI к поколениям conntrack пока недоступна. Порт 443 не доказывает HTTPS/QUIC; ECH и приложения не определяются. Маршруты не изменяются."
 	if !m.at.IsZero() {
 		note += " Снимок: " + m.at.Format(time.RFC3339)
 	}
@@ -155,7 +164,11 @@ func (m *flowModule) Tables() []Table {
 			note += " Нет свежих данных подписки на события."
 		}
 	}
-	return []Table{{Title: "Соединения IPv4", Cols: []string{"ID", "Протокол", "Источник", "Назначение", "ct mark", "Приложение", "Conntrack ID", "Zone"}, Rows: rows, Empty: "Нет снимка", Note: note + " Conntrack ID может повторно использоваться; он не доказывает непрерывность соединения между снимками."}}
+	tables := []Table{{Title: "Соединения IPv4", Cols: []string{"ID", "Протокол", "Источник", "Назначение", "ct mark", "Приложение", "Conntrack ID", "Zone"}, Rows: rows, Empty: "Нет снимка", Note: note + " Conntrack ID может повторно использоваться; он не доказывает непрерывность соединения между снимками."}}
+	if m.dpi != nil {
+		tables = append(tables, *m.dpi)
+	}
+	return tables
 }
 
 func (m *flowModule) syncEvents() {

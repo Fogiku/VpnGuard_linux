@@ -98,7 +98,13 @@ func parseNDPI42CSV(input string, capture dpiCapture) ([]dpiObservation, error) 
 			return nil, fmt.Errorf("invalid DPI tuple or time range")
 		}
 		label := get("ndpi_proto")
-		num, e := strconv.ParseUint(get("ndpi_proto_num"), 10, 32)
+		parts := strings.SplitN(get("ndpi_proto_num"), ".", 2)
+		num, e := strconv.ParseUint(parts[0], 10, 32)
+		if e == nil && len(parts) == 2 {
+			var application uint64
+			application, e = strconv.ParseUint(parts[1], 10, 32)
+			num |= application
+		}
 		if e != nil || !dpiLabel.MatchString(label) || (num == 0) != (label == "Unknown") {
 			return nil, fmt.Errorf("invalid DPI protocol label")
 		}

@@ -112,3 +112,18 @@ func TestNDPIUnknownAndTupleWindow(t *testing.T) {
 		t.Fatal("reverse/NAT tuple accepted")
 	}
 }
+
+func TestNDPICompoundProtocol(t *testing.T) {
+	const simple = ",7,HTTP"
+	for _, test := range []struct {
+		compound string
+		valid    bool
+	}{
+		{",91.178,TLS.Service", true}, {",91.x,TLS.Service", false}, {",0.0,TLS.Service", false},
+	} {
+		rows, err := parseNDPI42CSV(dpiCSVHeader+strings.Replace(dpiCSVRow, simple, test.compound, 1), dpiTestCapture())
+		if (err == nil) != test.valid || test.valid && rows[0].Flow.Application != "TLS.Service" {
+			t.Fatal(test, err)
+		}
+	}
+}
