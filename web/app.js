@@ -331,6 +331,19 @@ function downloadDiagnosticReport(checks, state) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
+let providerBusy = false;
+async function requestDiagnosticAdvice() {
+  if (providerBusy) return;
+  providerBusy = true;
+  try {
+    const r = await post('diag/recommendation', {}, true);
+    if (!r || PAGE !== 'diag') return;
+    const reasons = {disabled:'Провайдер выключен.', busy:'Другой запрос уже выполняется.', invalid_endpoint:'Проверьте адрес провайдера.', unavailable:'Провайдер недоступен.', invalid_response:'Ответ провайдера не соответствует формату.'};
+    const confidence = {low:'низкая', medium:'средняя', high:'высокая'};
+    const advice = r.advice ? `<p>${esc(r.advice.recommendation)}</p><p class="sub">Уверенность по оценке провайдера — ${esc(confidence[r.advice.confidence])}.</p>` : `<p>${esc(reasons[r.status])}</p>`;
+    modal(`<div class="sec">Рекомендация провайдера</div>${advice}<b>Локальный анализ</b><p>${esc(r.local.summary)}</p><ul>${r.local.observations.map(o => `<li>${esc(o)}</li>`).join('')}</ul><button type="button" onclick="closeModal()">Закрыть</button>`);
+  } finally { providerBusy = false; }
+}
 async function pDiag(run) {
   if (DIAGNEW) { run = true; DIAGNEW = false; } // при входе на страницу проверки выполняются заново
   let res; try { res = run ? await post('diagrun', {}, true) : await get('diag'); } catch (e) { return; } if (PAGE !== 'diag' || !res) return;

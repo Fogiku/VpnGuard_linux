@@ -89,6 +89,7 @@ func buildState() map[string]any {
 		"decisions": snapshotLog(&decRing)}
 	out["routeResources"] = resources
 	out["networkTelemetry"] = networkTelemetryView()
+	out["diagnosticProviderConfigured"] = configuredDiagnosticProvider() != ""
 	out["dnsService"] = dnsMod.clientStatus()
 	if resourceErr != nil {
 		out["routeResourceError"] = resourceErr.Error()
@@ -242,6 +243,9 @@ func startWeb(listen string) error {
 	})
 	api("diag/explanation", false, func(map[string]json.RawMessage) (any, error) {
 		return explainDiagnosticSnapshot(readDiagnosticSnapshotV1()), nil
+	})
+	api("diag/recommendation", true, func(map[string]json.RawMessage) (any, error) {
+		return reviewDiagnostics(readDiagnosticSnapshotV1(), configuredDiagnosticProvider(), providerHTTP), nil
 	})
 	api("diagrun", true, func(map[string]json.RawMessage) (any, error) { return runChecks(), nil })
 	api("fix", true, func(b map[string]json.RawMessage) (any, error) { return fixCheck(str(b, "id")) })
