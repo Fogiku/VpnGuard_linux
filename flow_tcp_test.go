@@ -15,7 +15,7 @@ import (
 
 func kernelNamespace(t *testing.T) string {
 	t.Helper()
-	cmd := exec.Command("unshare", "--net", "sleep", "120")
+	cmd := exec.Command("unshare", "--net", "sleep", "600")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}

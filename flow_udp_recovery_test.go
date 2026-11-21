@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -92,10 +93,29 @@ for command in sys.stdin:
 	apply()
 	phase(20, 50, 0)
 	checkNewUDPFlow(t, client, 41010, "192.0.2.1")
+	var reserveLine func() string
+	if os.Getenv("VPNGUARD_UDP_SOAK") == "1" {
+		_, reserveLine = kernelPython(t, client, reserveProbe)
+		if first := reserveLine(); first != "1" {
+			t.Fatalf("reserve flow failed to start: %s", first)
+		}
+	}
 	mod("meduza").(*flowTestExit).setSt(0, true, "up", "")
 	apply()
 	phase(100, 1000, 100)
 	checkNewUDPFlow(t, client, 41011, "192.0.3.1")
+	if reserveLine != nil {
+		start := time.Now()
+		last := 1
+		for time.Since(start) < 125*time.Second {
+			var seq int
+			if _, err := fmt.Sscan(reserveLine(), &seq); err != nil || seq != last+10 {
+				t.Fatalf("reserve flow: expected sequence %d, got %d: %v", last+10, seq, err)
+			}
+			last = seq
+		}
+		t.Logf("reserve socket confirmed %d consecutive Direct replies across recovery, observed for %s after VPN probe", last, time.Since(start).Round(time.Second))
+	}
 	delete(rt.Policy, "meduza")
 	rt.Profiles[0].Rules[0].Exit = "direct"
 	apply()
@@ -126,3 +146,22 @@ with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
 	}
 	t.Logf("new UDP flow %d: %s", port, want)
 }
+
+// Each acknowledgement includes the address seen by the receiver and the packet sequence.
+const reserveProbe = `import socket, time
+with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+    sock.bind(('10.253.0.2', 41012))
+    sock.connect(('198.51.100.5', 9002))
+    sock.settimeout(1)
+    seq = 0
+    while True:
+        seq += 1
+        data = str(seq).encode()
+        sock.send(data)
+        reply = sock.recv(128)
+        if reply != b'192.0.2.1|' + data:
+            raise RuntimeError('unexpected reserve reply: %r' % reply)
+        if seq % 10 == 1:
+            print(seq, flush=True)
+        time.sleep(.1)
+`
