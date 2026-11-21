@@ -240,6 +240,9 @@ func startWeb(listen string) error {
 		}
 		return store.view(time.Now().Unix()), nil
 	})
+	api("diag/explanation", false, func(map[string]json.RawMessage) (any, error) {
+		return explainDiagnosticSnapshot(readDiagnosticSnapshotV1()), nil
+	})
 	api("diagrun", true, func(map[string]json.RawMessage) (any, error) { return runChecks(), nil })
 	api("fix", true, func(b map[string]json.RawMessage) (any, error) { return fixCheck(str(b, "id")) })
 	api("rollback", true, func(body map[string]json.RawMessage) (any, error) {

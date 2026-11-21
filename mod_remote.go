@@ -204,7 +204,7 @@ func hideSecrets(s string) string {
 	return reImageData.ReplaceAllString(s, "(картинка скрыта)")
 }
 
-var remotePaths = []string{"/", "/status", "/check", "/diag", "/decisions", "/net", "/system", "/files", "/logs", "/bundle", "/cmd", "/v1/diagnostics/snapshot"}
+var remotePaths = []string{"/", "/status", "/check", "/diag", "/decisions", "/net", "/system", "/files", "/logs", "/bundle", "/cmd", "/v1/diagnostics/snapshot", "/v1/diagnostics/explanation"}
 
 func clientIP(r *http.Request) net.IP {
 	h, _, _ := net.SplitHostPort(r.RemoteAddr)
@@ -262,14 +262,19 @@ func remoteServe(w http.ResponseWriter, r *http.Request) {
 	switch path {
 	case "/":
 		text(remoteIndex())
-	case "/v1/diagnostics/snapshot":
+	case "/v1/diagnostics/snapshot", "/v1/diagnostics/explanation":
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
 			http.Error(w, "требуется GET", http.StatusMethodNotAllowed)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(w).Encode(readDiagnosticSnapshotV1())
+		snapshot := readDiagnosticSnapshotV1()
+		if path == "/v1/diagnostics/explanation" {
+			_ = json.NewEncoder(w).Encode(explainDiagnosticSnapshot(snapshot))
+		} else {
+			_ = json.NewEncoder(w).Encode(snapshot)
+		}
 	case "/status":
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		b, _ := json.MarshalIndent(buildState(), "", " ")
@@ -307,6 +312,7 @@ func remoteIndex() string {
 	return fmt.Sprintf(`VpnGuard для Linux %s — удалённая диагностика
 Время шлюза: %s · включена до %s · команды: %s
 
+/v1/diagnostics/explanation   объяснение состояния по снимку (JSON, схема 1)
 /v1/diagnostics/snapshot   обезличенный снимок модулей и счётчиков решений (JSON, схема 1)
 /status      состояние всех модулей (JSON)
 /check       проверки диагностики (выполняются заново)
