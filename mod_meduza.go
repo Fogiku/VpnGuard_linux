@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -547,7 +548,22 @@ func (m *meduza) connect(proto string) bool {
 	Log("INFO", "MeduzaVPN: connect --protocol %s → код %d %s", proto, code, strings.TrimSpace(out))
 	return code == 0
 }
-func (m *meduza) ok() bool { return probe(m.iface, cfg("vpn.probeUrl", "https://1.1.1.1")) }
+func (m *meduza) probeTraffic() (up, secondary bool) {
+	primary := cfg("vpn.probeUrl", "https://1.1.1.1")
+	if probe(m.iface, primary) {
+		return true, false
+	}
+	backup := "https://8.8.8.8"
+	if u, err := url.Parse(primary); err == nil && u.Hostname() == "8.8.8.8" {
+		backup = "https://1.1.1.1"
+	}
+	return probe(m.iface, backup), true
+}
+
+func (m *meduza) ok() bool {
+	up, _ := m.probeTraffic()
+	return up
+}
 func inetUp() bool {
 	if i := mod("inet"); i != nil {
 		return i.Status().Up
@@ -625,7 +641,11 @@ func (m *meduza) Tick() {
 		m.connect(m.proto())
 		m.readStatus()
 	}
-	if m.conn && m.ok() {
+	up, secondary := false, false
+	if m.conn {
+		up, secondary = m.probeTraffic()
+	}
+	if up {
 		if m.fails > 0 {
 			Decide("INFO", "MeduzaVPN: трафик снова проходит (протокол %s)", m.curProto)
 		}
@@ -637,6 +657,10 @@ func (m *meduza) Tick() {
 		why, lvl := "", 0
 		if m.override != "" {
 			lvl, why = 1, "работает запасной протокол "+m.override+" вместо "+cfg("meduza.protocol", "ultra")
+		}
+		if secondary {
+			lvl = 1
+			why = strings.TrimSpace(why + " Основная HTTPS-проверка не прошла, вторая цель ответила через VPN.")
 		}
 		m.publish(lvl, true, "Подключено", why)
 		return
