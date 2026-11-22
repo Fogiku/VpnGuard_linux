@@ -172,9 +172,12 @@ func (m *dnsModule) Set(key, value string) error {
 	return nil
 }
 func (m *dnsModule) Actions() []Action {
-	return []Action{{ID: "lookup", Title: "Проверить локальный DNS", Args: []Field{{Key: "name", Title: "Домен", Type: "text", Value: "example.com"}}}, {ID: "wg-profiles", Title: "DNS шлюза в экспортируемых WG-профилях"}}
+	return []Action{{ID: "compare-address", Title: "Сверить адрес клиента с правилом", Args: []Field{{Key: "name", Title: "Домен", Type: "text"}, {Key: "ip", Title: "IPv4 на клиенте", Type: "text"}, {Key: "rule", Title: "Правило", Type: "select"}}}, {ID: "lookup", Title: "Проверить локальный DNS", Args: []Field{{Key: "name", Title: "Домен", Type: "text", Value: "example.com"}}}, {ID: "wg-profiles", Title: "DNS шлюза в экспортируемых WG-профилях"}}
 }
 func (m *dnsModule) Do(id string, args map[string]string) (string, error) {
+	if id == "compare-address" {
+		return compareDNSAddress(args)
+	}
 	if id == "wg-profiles" {
 		m.tk.Lock()
 		defer m.tk.Unlock()
@@ -281,9 +284,9 @@ func (m *dnsModule) Tables() []Table {
 		if len(values) == 0 {
 			ttl = max(0, int(entry.Until.Sub(now).Seconds()))
 		}
-		rows = append(rows, []string{name, strings.Join(values, ", "), fmt.Sprint(ttl)})
+		rows = append(rows, []string{name, strings.Join(values, ", "), fmt.Sprint(ttl), entry.Source, entry.Seen.UTC().Format("2006-01-02 15:04:05")})
 	}
-	return []Table{{Title: "Доступ к DNS", Cols: []string{"Вход", "UDP/TCP", "Интерфейс", "Разрешённые источники"}, Rows: listenerRows, Note: "WG обслуживается только через WireGuard; LAN — из перечисленных подсетей. DNS в экспортируемых WG-профилях: " + clients["wgProfileDNS"].(string) + ". Для уже импортированных профилей обновите строку DNS на устройствах. AAAA отклоняется; IPv6-трафик и DoH/DoT клиентов этим не ограничиваются."}, {Title: "TTL-кэш маршрутизации · первые 100 имён", Cols: []string{"Домен", "IPv4", "Осталось, с"}, Rows: rows, Note: "Кэш хранится в памяти: только A из совпадающих с запросом ответов для доменов правил и их поддоменов, до 512 имён и 64 адресов на имя. Записи с TTL=0 не удерживаются. Самостоятельной DNSSEC-валидации нет."}}
+	return []Table{{Title: "Доступ к DNS", Cols: []string{"Вход", "UDP/TCP", "Интерфейс", "Разрешённые источники"}, Rows: listenerRows, Note: "WG обслуживается только через WireGuard; LAN — из перечисленных подсетей. DNS в экспортируемых WG-профилях: " + clients["wgProfileDNS"].(string) + ". Для уже импортированных профилей обновите строку DNS на устройствах. AAAA отклоняется; IPv6-трафик и DoH/DoT клиентов этим не ограничиваются."}, {Title: "TTL-кэш маршрутизации · первые 100 имён", Cols: []string{"Домен", "IPv4", "Осталось, с", "Последний ответ", "Получен, UTC"}, Rows: rows, Note: "Кэш хранится в памяти: только A из совпадающих с запросом ответов для доменов правил и их поддоменов, до 512 имён и 64 адресов на имя. Записи с TTL=0 не удерживаются. Самостоятельной DNSSEC-валидации нет."}}
 }
 
 func dnsErrorReply(packet []byte, code dnsmessage.RCode) []byte {
@@ -331,7 +334,7 @@ func (e *dnsEngine) serve(packet []byte, apply func() error) []byte {
 		return dnsErrorReply(packet, dnsmessage.RCodeServerFailure)
 	}
 	if q.Type == dnsmessage.TypeA && (m.RCode == 0 || m.RCode == dnsmessage.RCodeNameError) {
-		if !e.learn(m, generation) {
+		if !e.learn(m, generation, "Запрос через DNS-прокси") {
 			return dnsErrorReply(packet, dnsmessage.RCodeServerFailure)
 		}
 		e.mu.Lock()

@@ -218,6 +218,8 @@ func (p compiledRoutes) ipCommands() [][]string {
 	return append(append([][]string(nil), p.beforeNFT...), p.afterNFT...)
 }
 
+func routeAddressSet(tag string) string { return "m_" + reID.ReplaceAllString(tag, "_") }
+
 func zapretCounterChain(match string) string {
 	return fmt.Sprintf(`  chain zapret {
     type filter hook postrouting priority mangle; policy accept;
@@ -268,7 +270,7 @@ func compileRoutes(reg routeRegistry) compiledRoutes {
 		}
 		dst := ""
 		if len(addrs) > 0 {
-			name := "m_" + reID.ReplaceAllString(tag, "_")
+			name := routeAddressSet(tag)
 			sets = append(sets, fmt.Sprintf("  set %s { type ipv4_addr; flags interval; auto-merge; elements = { %s } }", name, strings.Join(addrs, ", ")))
 			dst = " ip daddr @" + name
 		}

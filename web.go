@@ -275,7 +275,7 @@ func startWeb(listen string) error {
 		args := map[string]string{}
 		_ = json.Unmarshal(b["args"], &args)
 		msg, err := m.Do(str(b, "action"), args)
-		if err == nil {
+		if err == nil && !(m.ID() == "dns" && str(b, "action") == "compare-address") {
 			Log("INFO", "веб: %s → %s: %s", m.Name(), str(b, "action"), msg)
 		}
 		return msg, err

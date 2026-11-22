@@ -47,6 +47,19 @@ async function runAction(modId, a, row) {
     } catch (e) { toast(e.message, true); }
     return;
   }
+  const compareAddress = modId === 'dns' && a.id === 'compare-address';
+  if (compareAddress) {
+    const options = [];
+    const add = (prefix, title, rules) => {
+      for (const r of rules || []) {
+        if (!r.last) options.push({V:prefix + '_' + r.id, T:title + ' / ' + (r.title || r.id)});
+      }
+    };
+    for (const p of S.routes.profiles) add(p.id, p.name, p.rules);
+    for (const c of S.routes.clients) add('ov_' + c.ip, c.name, c.overrides);
+    if (!options.length) { toast('Нет правил с условиями', true); return; }
+    a = {...a, args:a.args.map(f => f.key === 'rule' ? {...f, options, value:options[0].V} : f)};
+  }
   const args = row ? { row: row } : {};
   if (a.args && a.args.length) {
     // форма остаётся открытой, пока действие не выполнено: при ошибке (например, в конфигурации) правки не теряются
@@ -55,8 +68,13 @@ async function runAction(modId, a, row) {
     $('af').onsubmit = async ev => {
       ev.preventDefault(); a.args.forEach((f, i) => { args[f.key] = $('aa' + i).value; });
       const b = $('af').querySelector('button[type=submit]'); b.disabled = true; $('ae').textContent = 'Выполняется…';
-      const r = await post('do', { module: modId, action: a.id, args: args });
+      const r = await post('do', { module: modId, action: a.id, args: args }, compareAddress);
       if (r === null) { b.disabled = false; $('ae').textContent = document.getElementById('toast').textContent; return; }
+      if (compareAddress) {
+        modal(`<div class="sec">${esc(a.title)}</div><p style="white-space:pre-line">${esc(r)}</p><button id="comparison-ok">Закрыть</button>`);
+        $('comparison-ok').onclick = closeModal;
+        return;
+      }
       closeModal(); refresh(true);
     };
     return;

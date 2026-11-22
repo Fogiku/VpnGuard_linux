@@ -15,6 +15,7 @@ import (
 )
 
 type dnsEntry struct {
+	Source    string
 	Addresses map[string]time.Time
 	Until     time.Time
 	Seen      time.Time
@@ -159,7 +160,7 @@ func dnsAddresses(m dnsmessage.Message, now time.Time) (map[string]time.Time, ti
 	return addresses, until
 }
 
-func (e *dnsEngine) learn(m dnsmessage.Message, generation uint64) bool {
+func (e *dnsEngine) learn(m dnsmessage.Message, generation uint64, source string) bool {
 	if len(m.Questions) != 1 || m.Questions[0].Type != dnsmessage.TypeA || m.Truncated || (m.RCode != 0 && m.RCode != dnsmessage.RCodeNameError) {
 		return false
 	}
@@ -202,7 +203,7 @@ func (e *dnsEngine) learn(m dnsmessage.Message, generation uint64) bool {
 			}
 		}
 	}
-	e.entries[name] = dnsEntry{addresses, until, now}
+	e.entries[name] = dnsEntry{Addresses: addresses, Until: until, Seen: now, Source: source}
 	delete(e.retry, name)
 	return true
 }
@@ -225,7 +226,7 @@ func (e *dnsEngine) query(name string) error {
 				err = fmt.Errorf("DNS вернул код %d", m.RCode)
 			}
 			if err == nil {
-				if !e.learn(m, generation) {
+				if !e.learn(m, generation, "Обновление шлюзом") {
 					err = fmt.Errorf("настройки DNS изменились во время запроса")
 				}
 			}
