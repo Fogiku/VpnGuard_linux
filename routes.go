@@ -289,7 +289,9 @@ func compileRoutes(reg routeRegistry) compiledRoutes {
 			continue
 		}
 		for _, r := range rt.Overrides[c.IP] {
-			emit("ip saddr "+c.IP, r, "ov_"+c.IP+"_"+r.ID)
+			if !r.Last {
+				emit("ip saddr "+c.IP, r, "ov_"+c.IP+"_"+r.ID)
+			}
 		}
 		p := profileOf(c.IP)
 		members[p] = append(members[p], c.IP)
@@ -299,8 +301,24 @@ func compileRoutes(reg routeRegistry) compiledRoutes {
 			continue
 		}
 		sets = append(sets, fmt.Sprintf("  set c_%s { type ipv4_addr; elements = { %s } }", reID.ReplaceAllString(p.ID, "_"), strings.Join(members[p.ID], ", ")))
+		src := "ip saddr @c_" + reID.ReplaceAllString(p.ID, "_")
 		for _, r := range p.Rules {
-			emit("ip saddr @c_"+reID.ReplaceAllString(p.ID, "_"), r, p.ID+"_"+r.ID)
+			if !r.Last {
+				emit(src, r, p.ID+"_"+r.ID)
+			}
+		}
+		// A peer fallback replaces only the profile fallback for this source.
+		for _, ip := range members[p.ID] {
+			for _, r := range rt.Overrides[ip] {
+				if r.Last {
+					emit("ip saddr "+ip, r, "ov_"+ip+"_"+r.ID)
+				}
+			}
+		}
+		for _, r := range p.Rules {
+			if r.Last {
+				emit(src, r, p.ID+"_"+r.ID)
+			}
 		}
 	}
 	var b strings.Builder

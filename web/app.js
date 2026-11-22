@@ -202,19 +202,23 @@ function pModule() {
   }
 }
 // ---------------------------------------------------------------- маршруты
+const orderedRules = rules => rules.filter(r => !r.last).concat(rules.filter(r => r.last));
 function RT() { // рабочая копия маршрутов в том виде, в каком её принимает сервер
   const r = S.routes, strip = x => ({ id: x.id, title: x.title, preset: x.preset || '', match: x.match || '', exit: x.exit, last: !!x.last });
-  const out = { profiles: r.profiles.map(p => ({ id: p.id, name: p.name, rules: p.rules.map(strip) })), clients: {}, overrides: {}, policy: {} };
-  r.clients.forEach(c => { out.clients[c.ip] = c.profile; if (c.overrides.length) out.overrides[c.ip] = c.overrides.map(strip); });
+  const out = { profiles: r.profiles.map(p => ({ id: p.id, name: p.name, rules: orderedRules(p.rules).map(strip) })), clients: {}, overrides: {}, policy: {} };
+  r.clients.forEach(c => { out.clients[c.ip] = c.profile; if (c.overrides.length) out.overrides[c.ip] = orderedRules(c.overrides).map(strip); });
   r.exits.forEach(e => { if (e.policy) out.policy[e.id] = { reserve: e.reserve || '', ifDown: e.ifDown || 'block' }; });
   return out;
 }
 const saveRT = (rt, quiet) => post('routes', { routes: rt }, quiet);
 const uid = p => p + Date.now().toString(36) + Math.floor(Math.random() * 99);
 const xopts = (cur, skip, none) => (none ? `<option value=""${cur ? '' : ' selected'}>нет</option>` : '') + S.routes.exits.filter(e => e.id !== skip).map(e => `<option value="${e.id}"${e.id === cur ? ' selected' : ''}>${esc(e.name)}</option>`).join('');
-function ruleList() { // правила клиента (если выбран) стоят выше правил профиля
+function ruleList() {
   const P = S.routes.profiles.find(p => p.id === SELP) || S.routes.profiles[0], c = S.routes.clients.find(x => x.ip === SELC && x.profile === P.id);
-  return { P, c, list: (c ? c.overrides.map((r, i) => ({ r, sc: 'o', i })) : []).concat(P.rules.map((r, i) => ({ r, sc: 'p', i }))) };
+  const personal = orderedRules(c?.overrides || []).map((r,i) => ({r,sc:'o',i}));
+  const profile = orderedRules(P.rules).map((r,i) => ({r,sc:'p',i}));
+  const entries = personal.concat(profile);
+  return {P, c, list: entries.filter(x => !x.r.last).concat(entries.filter(x => x.r.last))};
 }
 function pRoutes() {
   const R = S.routes; if (!R.profiles.some(p => p.id === SELP)) SELP = R.profiles[0].id;
@@ -224,10 +228,10 @@ function pRoutes() {
   const lvl = whys.length ? (R.profiles.some(p => p.rules.some(r => r.state === 'bad')) ? 2 : 1) : 0;
   const tiles = R.profiles.map(p => `<div class="tile${p.id === P.id ? ' sel' : ''}" data-selp="${p.id}" data-drop="${p.id}" tabindex="0" role="button"><div class="t">Профиль · правил: ${p.rules.length}</div><div class="s">${esc(p.name)}</div>
     <div class="chips">${R.clients.filter(x => x.profile === p.id).map(x => `<span class="chip${x.on ? '' : ' off'}${x.ip === SELC ? ' sel' : ''}" draggable="true" data-drag="client" data-ip="${x.ip}" title="${x.ip} · перетащите в другой профиль; щелчок — свои правила клиента"><span class="dot ${x.on ? 'l0' : ''}"></span>${esc(x.name)}${x.overrides.length ? ' ●' : ''}</span>`).join('') || '<span class="n3">нет клиентов — перетащите сюда</span>'}</div></div>`).join('');
-  const rules = list.map((x, k) => { const r = x.r, n = list.filter(y => y.sc === x.sc).length, fixed = r.last;
+  const rules = list.map((x, k) => { const r = x.r, n = list.filter(y => y.sc === x.sc && !y.r.last).length, fixed = r.last;
     return `<div class="fnode rule${x.sc === 'o' ? ' ov' : ''}" data-rule="${k}"><div class="row rhead">${fixed ? '' : `<span class="grip" draggable="true" data-drag="rule" data-k="${k}" title="Перетащите, чтобы изменить порядок">⠿</span>`}<span class="num">${k + 1}</span>
-      <div class="grow"><div class="n1">${esc(r.title)}</div><div class="n3">${x.sc === 'o' ? 'только ' + esc(c.name) + ' · ' : ''}${r.last ? 'правило по умолчанию' : esc(r.preset ? (R.presets.find(p => p.id === r.preset) || {}).match : r.match)}</div></div>
-      ${fixed ? '' : `<button type="button" class="sq" data-mv="${k}:-1" aria-label="Поднять"${x.i === 0 ? ' disabled' : ''}>↑</button><button type="button" class="sq" data-mv="${k}:1" aria-label="Опустить"${x.i >= n - (x.sc === 'p' ? 2 : 1) ? ' disabled' : ''}>↓</button><button type="button" class="sq bad" data-del="${k}" aria-label="Удалить правило">×</button>`}</div>
+      <div class="grow"><div class="n1">${esc(r.title)}</div><div class="n3">${x.sc === 'o' ? 'только ' + esc(c.name) + ' · ' : ''}${r.last ? (x.sc === 'p' && c?.overrides.some(rule => rule.last) ? 'по умолчанию для профиля · у клиента свой выход' : 'правило по умолчанию') : esc(r.preset ? (R.presets.find(p => p.id === r.preset) || {}).match : r.match)}</div></div>
+      ${fixed ? '' : `<button type="button" class="sq" data-mv="${k}:-1" aria-label="Поднять"${x.i === 0 ? ' disabled' : ''}>↑</button><button type="button" class="sq" data-mv="${k}:1" aria-label="Опустить"${x.i >= n - 1 ? ' disabled' : ''}>↓</button><button type="button" class="sq bad" data-del="${k}" aria-label="Удалить правило">×</button>`}</div>
       <div class="row"><label class="lbl" for="rx${k}">Выход</label><select id="rx${k}" data-rx="${k}">${xopts(r.exit)}</select></div>${r.why ? `<div class="note ${r.state}">${esc(r.why)}</div>` : ''}<span class="port" data-port="${k}" title="Потяните к узлу справа, чтобы сменить выход"></span></div>`; }).join('');
   const exits = R.exits.map(e => `<div class="fnode xnode${e.up ? '' : ' down'}" data-exit="${e.id}" style="--xc:${e.color}"><div class="row"><span class="dot ${e.level >= 0 ? 'l' + e.level : ''}"></span><span class="n1 grow">${esc(e.name)}</span>
     ${e.policy ? `<button type="button" class="sq" data-xedit="${e.id}" title="Резерв и поведение при сбое" aria-label="Настройки выхода">✎</button>${M(e.id)?.page ? `<a href="#${e.id}" class="n3" title="Открыть страницу модуля">модуль →</a>` : ''}` : ''}</div>
@@ -243,7 +247,7 @@ function pRoutes() {
     `<div class="sec">Профили и клиенты</div><div class="profiles">${tiles}</div>
     <form class="row" id="fprof" style="margin-top:10px"><label class="lbl" for="npn">Новый профиль</label><input type="text" id="npn" placeholder="Гости"><button type="submit">+ Создать профиль</button></form>
     <div class="sec">Схема профиля</div><div class="card"><div class="row" style="margin-bottom:12px"><div class="field"><label for="pname">Название профиля</label><input type="text" id="pname" value="${esc(P.name)}"></div>
-      <span class="sub grow">Правила проверяются сверху вниз, срабатывает первое подходящее. ⠿ — порядок, кружок справа — выход. Щёлкните клиента, чтобы задать ему свои правила поверх профиля.</span>
+      <span class="sub grow">Правила проверяются сверху вниз, срабатывает первое подходящее. ⠿ — порядок, кружок справа — выход. Условия клиента идут перед условиями профиля. Для остального трафика используется выход клиента по умолчанию, если он задан.</span>
       <button type="button" id="bdelp"${R.profiles.length < 2 ? ' disabled' : ''}>Удалить профиль</button></div>
       <div id="flowhost"><div class="scheme" id="scheme"><svg id="wires" aria-hidden="true"></svg>
         <div class="col"><div class="fglh">Откуда</div><div class="fnode" id="me" style="margin-top:30px"><div class="n1">${esc(c ? c.name : P.name)}</div><div class="n3">${c ? c.ip + ' · свои правила + профиль' : 'клиентов: ' + mine.length + ' · на связи: ' + mine.filter(x => x.on).length}</div>
