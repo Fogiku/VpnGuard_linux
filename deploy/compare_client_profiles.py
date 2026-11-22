@@ -5,8 +5,10 @@ import ipaddress
 import json
 import math
 import os
-from datetime import datetime
+import sqlite3
 from pathlib import Path
+
+from profile_history import capture_timestamp, record
 
 
 def lab_context(session, revision, control, browser_version, channel):
@@ -41,13 +43,6 @@ def sample_state(sample, service):
         if state in ("connection_error", "closed_before_hello", "timeout"):
             return "failure"
     return "inconclusive"
-
-
-def capture_time(sample):
-    stamp = datetime.fromisoformat(sample["utc"].replace("Z", "+00:00"))
-    if stamp.utcoffset() is None:
-        raise ValueError("missing UTC offset")
-    return stamp.timestamp()
 
 
 def compare(a, b):
@@ -95,7 +90,7 @@ def compare(a, b):
                         raise ValueError("reported egress match contradicts address or family")
                 else:
                     all_egress_matched = False
-    times = [[capture_time(s) for s in samples] for samples in (left, right)]
+    times = [[capture_timestamp(s['utc']) for s in samples] for samples in (left, right)]
     if any(any(y <= x for x, y in zip(t, t[1:])) for t in times):
         raise ValueError("unordered or duplicate samples")
     result = dict(schema=1, source="paired_client_browser", session=labs[0]["session"],
@@ -137,11 +132,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("first", type=Path)
     parser.add_argument("second", type=Path)
+    parser.add_argument("--history", type=Path, help="SQLite history of comparable lab sessions")
+    parser.add_argument("--network", help="Stable operator label for the tested network")
     args = parser.parse_args()
+    if bool(args.history) != bool(args.network and args.network.strip()):
+        parser.error("use --history and --network together")
     try:
         reports = [json.loads(p.read_text(encoding="utf-8")) for p in (args.first, args.second)]
-        print(json.dumps(compare(*reports), ensure_ascii=False, indent=2))
-    except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError) as exc:
+        result = compare(*reports)
+        if args.history:
+            result["shadow"] = record(args.history, args.network.strip(), result)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    except (sqlite3.Error, OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError) as exc:
         parser.exit(2, f"Cannot compare reports: {exc}\n")
 
 
