@@ -44,6 +44,20 @@ func parseZProbe(text string, exit int, speed bool) zProbeResult {
 			r.Detail = "Не удалось установить соединение"
 		case 28:
 			r.Detail = "Тайм-аут"
+			if len(f) >= 5 {
+				tcp, tcpErr := strconv.ParseFloat(f[3], 64)
+				tls, tlsErr := strconv.ParseFloat(f[4], 64)
+				if tcpErr == nil && tlsErr == nil {
+					switch {
+					case tls > 0:
+						r.Detail += " после TLS, до HTTP-ответа"
+					case tcp > 0:
+						r.Detail += " после установки TCP-соединения"
+					case tcp == 0 && tls == 0:
+						r.Detail += " до подтверждения TCP-соединения"
+					}
+				}
+			}
 		case 35:
 			r.Detail = "Ошибка TLS-рукопожатия"
 		case 60:

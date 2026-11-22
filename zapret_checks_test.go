@@ -97,3 +97,34 @@ func TestShareableZapretDiagnostic(t *testing.T) {
 		spy.tables = "table inet vpnguard_zapret_probe"
 	}
 }
+
+func TestProbeTimeoutMilestone(t *testing.T) {
+	for _, tc := range []struct{ timings, detail string }{
+		{"0 0", "до подтверждения TCP"},
+		{"0.1 0", "после установки TCP"},
+		{"0.1 0.2", "после TLS"},
+		{"? ?", "Тайм-аут · curl 28"},
+	} {
+		result := parseZProbe("000 0 12 "+tc.timings, 28, false)
+		if result.OK || !strings.Contains(result.Detail, tc.detail) {
+			t.Errorf("%s: %+v", tc.timings, result)
+		}
+	}
+}
+
+func TestZapretProbeHistoryBound(t *testing.T) {
+	sim := setup(t)
+	spy := &siteCheckSys{Sys: sim, rules: "occupied"}
+	S = spy
+	m := &zapret2{}
+	for i := 0; i < 17; i++ {
+		m.check()
+	}
+	before := m.probeHistory
+	spy.rules, spy.tables = "", "table inet vpnguard_zapret_probe"
+	m.check()
+	if len(m.probeHistory) != 16 || !strings.Contains(m.probeHistory[0][1], "nftables") ||
+		!strings.Contains(before[0][1], "1198") || spy.mutations != 0 {
+		t.Fatal("probe history lost order, isolation or resource guard")
+	}
+}

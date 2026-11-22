@@ -19,12 +19,13 @@ type zapret2 struct {
 	videoHost, videoJS    string
 	videoAt, videoAttempt time.Time
 	base
-	strat    []zStrategy
-	running  string
-	sites    [][]string
-	fails    int
-	retryAt  time.Time
-	startErr string
+	strat        []zStrategy
+	running      string
+	sites        [][]string
+	probeHistory [][]string
+	fails        int
+	retryAt      time.Time
+	startErr     string
 }
 
 const zUnit, zArgs = "vpnguard-nfqws2", "/etc/vpnguard/nfqws2.args"
@@ -103,7 +104,7 @@ func (s siteCheck) summary() string {
 	if s.setupError != "" {
 		return s.setupError
 	}
-	return fmt.Sprintf("Открывается %d из %d", s.passed, s.total)
+	return fmt.Sprintf("Пройдено проверок шлюза: %d из %d", s.passed, s.total)
 }
 
 func probeResourcesAvailable() string {
@@ -133,6 +134,8 @@ func (m *zapret2) check() (result siteCheck) {
 	defer func() {
 		m.mu.Lock()
 		m.sites = rows
+		entry := []string{time.Now().UTC().Format(time.RFC3339), result.summary()}
+		m.probeHistory = append([][]string{entry}, m.probeHistory[:min(15, len(m.probeHistory))]...)
 		m.mu.Unlock()
 	}()
 	targets := m.targets()
@@ -418,6 +421,7 @@ func (m *zapret2) Tables() []Table {
 	m.load()
 	m.mu.Lock()
 	sites := m.sites
+	history := m.probeHistory
 	m.mu.Unlock()
 	var rows [][]string
 	for _, s := range m.strat {
@@ -428,6 +432,7 @@ func (m *zapret2) Tables() []Table {
 		rows = append(rows, []string{s.Name, s.Args, s.Last, st})
 	}
 	return []Table{{Title: "Проверка сайтов", Cols: []string{"Проверка", "Результат", "Подробности"}, Rows: sites, Empty: "Проверка ещё не выполнялась", Note: "HTTP 403/404 у корня сайта означает, что сервер ответил. Gateway проверяется по HTTPS. Скорость — загрузка JS плеера, как в Windows; воспроизведение ролика, WebSocket и голос Discord здесь не проверяются."},
+		{Title: "История проверок шлюза", Cols: []string{"Время UTC", "Результат"}, Rows: history, Empty: "Нет завершённых проверок", Note: "Последние 16 попыток с момента запуска агента. Ошибка подготовки сохраняется отдельно от результата запросов."},
 		{Title: "Стратегии", Cols: []string{"Название", "Параметры nfqws2", "Последний подбор", "Состояние"}, Rows: rows,
 			Actions: []Action{{ID: "select", Title: "Выбрать"}, {ID: "delete", Title: "Удалить", Danger: true, Confirm: "Удалить стратегию?"}}}}
 }

@@ -34,3 +34,17 @@ class ClientPlaybackTest(unittest.TestCase):
         self.assertEqual(conclusion([missed, missed]), "repeated_unconfirmed")
         self.assertEqual(conclusion([success, missed]), "inconclusive")
         self.assertEqual(conclusion([dict(success, control_http=503)]), "control_inconclusive")
+
+    def test_gateway_hello(self):
+        from probe_client_playback import discord_gateway, sync_playwright
+
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(channel=os.environ["VPNGUARD_TEST_BROWSER"])
+            for payload, expected in [('{"op":10,"d":{"heartbeat_interval":45000}}', "hello"),
+                                      ('{"op":10}', "unexpected_message"),
+                                      ('invalid', "unexpected_message")]:
+                page = browser.new_page()
+                page.route_web_socket("**/gateway.discord.gg/**", lambda ws: ws.send(payload))
+                self.assertEqual(discord_gateway(page), expected)
+                page.close()
+            browser.close()

@@ -1,4 +1,4 @@
-"""Client-side YouTube playback and control measurements. Requires Playwright."""
+"""Client-side YouTube playback, Discord Gateway and control measurements. Requires Playwright."""
 import argparse
 import json
 import re
@@ -58,22 +58,56 @@ def playback(page, seconds):
     return "unconfirmed", round(longest, 1)
 
 
-def measure(browser, target, control):
+def discord_gateway(page):
+    return page.evaluate("""() => new Promise(resolve => {
+        const socket = new WebSocket('wss://gateway.discord.gg/?v=10&encoding=json');
+        const timer = setTimeout(() => finish('timeout'), 10000);
+        function finish(result) {
+            clearTimeout(timer);
+            socket.onerror = socket.onclose = socket.onmessage = null;
+            socket.close();
+            resolve(result);
+        }
+        socket.onerror = () => finish('connection_error');
+        socket.onclose = () => finish('closed_before_hello');
+        socket.onmessage = event => {
+            try {
+                const data = JSON.parse(event.data);
+                const interval = data?.d?.heartbeat_interval;
+                finish(data?.op === 10 && Number.isFinite(interval) && interval > 0
+                    ? 'hello' : 'unexpected_message');
+            } catch {
+                finish('unexpected_message');
+            }
+        };
+    })""")
+
+
+def measure(browser, target, control, discord=False):
     context = browser.new_context()
     try:
-        page = context.new_page()
         control_page = context.new_page()
-        control_status = navigation(control_page, control, 10000)
+        sample = {"utc": datetime.now(timezone.utc).isoformat(),
+                  "control_http": navigation(control_page, control, 10000)}
         control_page.close()
-        page_status = navigation(page, target, 15000)
-        state, duration = "page_failed", 0
-        if page_status is not None and 200 <= page_status < 300:
+        if discord:
+            gateway_page = context.new_page()
             try:
-                state, duration = playback(page, 20)
+                sample["discord_gateway"] = discord_gateway(gateway_page)
             except Error:
-                state = "observation_interrupted"
-        return {"utc": datetime.now(timezone.utc).isoformat(), "control_http": control_status,
-                "page_http": page_status, "playback": state, "continuous_seconds": duration}
+                sample["discord_gateway"] = "observation_interrupted"
+            gateway_page.close()
+        if target:
+            page = context.new_page()
+            page_status = navigation(page, target, 15000)
+            state, duration = "page_failed", 0
+            if page_status is not None and 200 <= page_status < 300:
+                try:
+                    state, duration = playback(page, 20)
+                except Error:
+                    state = "observation_interrupted"
+            sample.update(page_http=page_status, playback=state, continuous_seconds=duration)
+        return sample
     finally:
         context.close()
 
@@ -91,26 +125,31 @@ def conclusion(samples):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--video-id", required=True)
+    parser.add_argument("--video-id")
+    parser.add_argument("--discord", action="store_true", help="Check Discord Gateway WebSocket Hello")
     parser.add_argument("--control", required=True, help="Independent HTTPS URL expected to return 2xx")
     parser.add_argument("--path-label", required=True, help="Operator label for the configured client path")
     parser.add_argument("--runs", type=int, choices=range(1, 6), default=2)
     parser.add_argument("--channel", choices=["msedge", "chrome", "chromium"])
     args = parser.parse_args()
-    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", args.video_id):
+    if not args.video_id and not args.discord:
+        parser.error("select --video-id or --discord or both")
+    if args.video_id and not re.fullmatch(r"[A-Za-z0-9_-]{11}", args.video_id):
         parser.error("expected an 11-character YouTube video ID")
     if urlsplit(args.control).scheme != "https" or not urlsplit(args.control).hostname:
         parser.error("expected an HTTPS control URL")
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel=args.channel)
         try:
-            samples = [measure(browser, "https://www.youtube.com/watch?v=" + args.video_id,
-                               args.control) for _ in range(args.runs)]
+            target = "https://www.youtube.com/watch?v=" + args.video_id if args.video_id else None
+            samples = [measure(browser, target, args.control, args.discord) for _ in range(args.runs)]
         finally:
             browser.close()
-    print(json.dumps({"schema": 1, "source": "client_browser", "operator_path_label": args.path_label,
-                      "video_id": args.video_id, "samples": samples, "result": conclusion(samples)},
-                     ensure_ascii=False, indent=2))
+    report = {"schema": 2 if args.discord else 1, "source": "client_browser",
+              "operator_path_label": args.path_label, "samples": samples}
+    if args.video_id:
+        report.update(video_id=args.video_id, result=conclusion(samples))
+    print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
