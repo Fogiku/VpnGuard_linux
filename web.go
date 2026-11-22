@@ -88,6 +88,7 @@ func buildState() map[string]any {
 		"routes":    map[string]any{"profiles": profs, "clients": clients, "exits": exits, "presets": pres, "applyInfo": info, "canRollback": canRb, "pending": pendingRouteView(), "events": routeHistory()},
 		"decisions": snapshotLog(&decRing)}
 	out["routeResources"] = resources
+	out["dpiHistory"] = flowsMod.diagnosticDPI()
 	out["flowLifecycle"] = flowsMod.lifecycle()
 	out["networkTelemetry"] = networkTelemetryView()
 	out["diagnosticProviderConfigured"] = configuredDiagnosticProvider() != ""

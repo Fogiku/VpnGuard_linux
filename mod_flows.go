@@ -24,6 +24,7 @@ type flowRow struct {
 	Zone            uint16  `json:"zone"`
 }
 type flowModule struct {
+	dpiHistory    []dpiSampleResult
 	bindings      map[string]dpiBinding
 	installMu     sync.Mutex
 	installStatus string
@@ -64,14 +65,25 @@ func (m *flowModule) Tick() {
 	defer m.tk.Unlock()
 	m.syncEvents()
 	var dpi *Table
+	var result dpiSampleResult
 	var bindings map[string]dpiBinding
 	if cfgBool("flows.enabled", false) && cfgBool("flows.dpiEnabled", false) {
-		sample, matched := sampleDPITable(wgMod.iface(), m.events)
+		sample, summary, matched := sampleDPITable(wgMod.iface(), m.events)
+		result = summary
+		result.Description = dpiStatuses[result.Status]
 		bindings = matched
 		dpi = &sample
 	}
 	m.mu.Lock()
 	m.dpi = dpi
+	if dpi == nil {
+		m.dpiHistory = nil
+	} else {
+		if len(m.dpiHistory) == dpiHistoryLimit {
+			m.dpiHistory = m.dpiHistory[1:]
+		}
+		m.dpiHistory = append(m.dpiHistory, result)
+	}
 	m.bindings = nil
 	m.mu.Unlock()
 	if !cfgBool("flows.enabled", false) {
@@ -180,7 +192,7 @@ func (m *flowModule) Tables() []Table {
 	}
 	tables := []Table{{Title: "Соединения IPv4", Cols: []string{"ID", "Протокол", "Источник", "Назначение", "ct mark", "Приложение", "Conntrack ID", "Zone", "Наблюдение nDPI"}, Rows: rows, Empty: "Нет снимка", Note: note + " Conntrack ID может повторно использоваться; он не доказывает непрерывность соединения между снимками."}}
 	if m.dpi != nil {
-		tables = append(tables, *m.dpi)
+		tables = append(tables, *m.dpi, dpiHistoryTable(m.dpiHistory))
 	}
 	if m.installStatus != "" {
 		tables = append(tables, Table{Title: "Установка nDPI", Text: m.installStatus})

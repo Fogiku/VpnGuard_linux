@@ -85,6 +85,15 @@ for _ in range(400):
 	if len(m.bindings) != 1 || m.dpi == nil || len(m.dpi.Rows) != 1 || m.dpi.Rows[0][0] != "DNS" {
 		t.Fatalf("unexpected sample: %+v, bindings %d", m.dpi, len(m.bindings))
 	}
+	history := m.diagnosticDPI()
+	if len(history.Samples) != 1 || history.Samples[0].Counts == nil {
+		t.Fatal(history)
+	}
+	c := history.Samples[0].Counts
+	if c.Packets < 1 || c.Bound != 1 || c.Recognized != 1 || c.Unknown != 0 {
+		t.Fatal(c)
+	}
+	t.Logf("nDPI history: packets=%d recognized=%d bound=%d", c.Packets, c.Recognized, c.Bound)
 	deadline = time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		for _, row := range m.Tables()[0].Rows {
@@ -133,7 +142,7 @@ func TestPassiveDPISettingsAndExpiredResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	tables := m.Tables()
-	if len(tables) != 2 || len(tables[1].Rows) != 1 || tables[1].Rows[0][0] != "HTTP" {
+	if len(tables) != 3 || len(tables[1].Rows) != 1 || tables[1].Rows[0][0] != "HTTP" {
 		t.Fatal(tables)
 	}
 	s.dpiOutput = `{"error":"missing"}`
@@ -141,10 +150,31 @@ func TestPassiveDPISettingsAndExpiredResult(t *testing.T) {
 	if tab := m.Tables()[1]; len(tab.Rows) != 0 || !strings.Contains(tab.Empty, "libndpi-bin") {
 		t.Fatal(tab)
 	}
+	for i := 0; i < 16; i++ {
+		s.dpiOutput = `{"start":1700000000000,"end":1700000002000,"packets":0}`
+		m.Tick()
+	}
+	data, err = json.Marshal(map[string]any{"start": 1700000000000, "end": 1700000002000, "packets": 1, "csv": dpiCSVHeader + strings.Replace(dpiCSVRow, ",7,HTTP", ",0,Unknown", 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.dpiOutput = string(data)
+	m.Tick()
+	s.dpiOutput = `{"error":"private-hostname"}`
+	m.Tick()
+	history := m.diagnosticDPI()
+	if len(history.Samples) != 16 || history.Samples[0].Status != "empty" || history.Samples[0].Counts == nil || history.Samples[14].Counts.Unknown != 1 || history.Samples[14].Counts.Recognized != 0 || history.Samples[15].Status != "reader" || history.Samples[15].Counts != nil {
+		t.Fatal(history)
+	}
+	wire, _ := json.Marshal(history)
+	if strings.Contains(string(wire), "private-hostname") || strings.Contains(string(wire), "192.0.2.") {
+		t.Fatal(string(wire))
+	}
+	probes := s.probes
 	if err := m.Set("flows.dpiEnabled", "false"); err != nil {
 		t.Fatal(err)
 	}
-	if s.probes != 2 || len(m.Tables()) != 1 {
+	if s.probes != probes || len(m.Tables()) != 1 || len(m.diagnosticDPI().Samples) != 0 {
 		t.Fatal("capture still active")
 	}
 }

@@ -341,6 +341,16 @@ async function pMon() {
   });
 }
 // ---------------------------------------------------------------- диагностика
+function dpiReportLines(history) {
+  if (!history?.enabled) return ['nDPI: сбор выключен или недоступен.'];
+  if (!history.samples.length) return ['nDPI: ожидание первой попытки.'];
+  return ['nDPI · последние выборки (UTC)', ...history.samples.map(s => {
+    const counts = s.counts;
+    const result = new Date(s.at * 1000).toISOString() + ' · ' + s.description;
+    return counts ? result + ' · пакетов ' + counts.packets + ', распознано ' + counts.recognized +
+      ', Unknown ' + counts.unknown + ', связано с conntrack ' + counts.bound : result;
+  })];
+}
 function downloadDiagnosticReport(checks, state) {
   const now = new Date().toISOString();
   const flows = state.flowLifecycle;
@@ -360,6 +370,7 @@ function downloadDiagnosticReport(checks, state) {
       'С начала подписки: открыто ' + flows.opened + ', завершено ' + flows.completed + ', отслеживается ' + flows.active,
       'Без наблюдаемого начала: UPDATE ' + flows.unmatchedUpdates + ', DESTROY ' + flows.unmatchedDestroys
     ] : ['События соединений IPv4: нет свежей сводки']),
+    ...dpiReportLines(state.dpiHistory),
     'Качество ICMP за 5 минут (UTC)',
     ...(quality.length ? quality : ['Нет серий за этот период.']),
     'Последнее обновление: ' + (last ? last.version + ' · ' + last.status + ' · ' + last.at : 'записей нет'),
