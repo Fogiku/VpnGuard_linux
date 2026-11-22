@@ -45,6 +45,10 @@ class ClientPlaybackTest(unittest.TestCase):
                                       ('invalid', "unexpected_message")]:
                 page = browser.new_page()
                 page.route_web_socket("**/gateway.discord.gg/**", lambda ws: ws.send(payload))
+                # Install the WebSocket route before loading the document that opens it.
+                page.route("https://example.test/", lambda route: route.fulfill(
+                    content_type="text/html", body="<html></html>"))
+                page.goto("https://example.test/")
                 self.assertEqual(discord_gateway(page), expected)
                 page.close()
             browser.close()
