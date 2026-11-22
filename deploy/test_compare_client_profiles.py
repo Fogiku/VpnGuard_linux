@@ -41,6 +41,26 @@ class CompareTests(unittest.TestCase):
         self.b["samples"][0].update(playback="playing", continuous_seconds=1)
         self.assertEqual(compare(self.a, self.b)["comparison"]["youtube"]["outcome"], "inconclusive")
 
+    def test_requested_egress(self):
+        for report, expected in ((self.a, "192.0.2.0/24"), (self.b, "198.51.100.0/24")):
+            for sample in report["samples"]:
+                sample["egress"] = {"v4": dict(target_sha256="same", expected=expected, address=expected.split("/")[0], status="matched")}
+        def outcome():
+            return compare(self.a, self.b)["comparison"]["youtube"]["outcome"]
+        self.assertEqual(outcome(), "both_observed")
+        self.b["samples"][1]["egress"]["v4"]["address"] = "192.0.2.7"
+        with self.assertRaises(ValueError):
+            outcome()
+        for status in ("wrong_family", "outside_expected", "unavailable"):
+            self.b["samples"][1]["egress"]["v4"]["status"] = status
+            self.assertEqual(outcome(), "inconclusive")
+        self.b["samples"][1]["egress"]["v4"]["target_sha256"] = "different"
+        with self.assertRaises(ValueError):
+            outcome()
+        del self.b["samples"][1]["egress"]
+        with self.assertRaises(ValueError):
+            outcome()
+
     def test_mismatched_context(self):
         for key in ("session", "control_sha256", "boot_sha256", "browser_version", "channel",
                     "netns_inode", "profile_revision"):

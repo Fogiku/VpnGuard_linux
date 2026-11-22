@@ -1,5 +1,7 @@
 """Client-side YouTube playback, Discord Gateway and control measurements. Requires Playwright."""
 import argparse
+import hashlib
+import ipaddress
 import json
 import re
 import sys
@@ -83,7 +85,68 @@ def discord_gateway(page):
     })""")
 
 
-def measure(browser, target, control, discord=False):
+def egress_config(values, family):
+    url, prefix = values
+    target = urlsplit(url)
+    if target.scheme != "https" or not target.hostname or target.fragment or target.username is not None:
+        raise ValueError("expected an HTTPS reflector URL without credentials or fragment")
+    network = ipaddress.ip_network(prefix)
+    if network.version != family:
+        raise ValueError("expected an IPv%d network" % family)
+    return url, network
+
+
+def inspect_egress(context, url, network):
+    result = dict(target_sha256=hashlib.sha256(url.encode()).hexdigest(),
+                  expected=str(network), status="unavailable")
+    page = context.new_page()
+    try:
+        page.set_extra_http_headers({"Cache-Control": "no-cache"})
+        response = page.goto(url, wait_until="domcontentloaded", timeout=7000)
+        if not response or response.request.redirected_from or response.from_service_worker or not response.ok:
+            return result
+        if response.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+            return result
+        data = response.json()
+        if not isinstance(data, dict) or not isinstance(data.get("ip"), str):
+            return result
+        address = ipaddress.ip_address(data["ip"])
+        result["address"] = str(address)
+        if address.version != network.version:
+            result["status"] = "wrong_family"
+        else:
+            result["status"] = "matched" if address in network else "outside_expected"
+    except (Error, ValueError):
+        pass
+    finally:
+        page.close()
+    return result
+
+
+def record_media_peer(event, summary):
+    response = event["response"]
+    url = urlsplit(response["url"])
+    if (url.scheme != "https" or not (url.hostname or "").endswith(".googlevideo.com")
+            or url.path != "/videoplayback" or not 200 <= response["status"] < 300
+            or not response.get("mimeType", "").lower().startswith(("audio/", "video/"))
+            or any(response.get(key) for key in ("fromDiskCache", "fromPrefetchCache", "fromServiceWorker"))):
+        return
+    try:
+        ip = str(ipaddress.ip_address(response.get("remoteIPAddress", "").strip("[]")))
+    except ValueError:
+        return
+    port = response.get("remotePort")
+    if type(port) is not int or not 1 <= port <= 65535:
+        return
+    peer = dict(address=ip, port=port, protocol=response.get("protocol") or "unknown")
+    if peer not in summary["peers"]:
+        if len(summary["peers"]) >= 16:
+            summary["truncated"] = True
+            return
+        summary["peers"].append(peer)
+
+
+def measure(browser, target, control, discord=False, egress=None):
     context = browser.new_context()
     try:
         control_page = context.new_page()
@@ -99,6 +162,14 @@ def measure(browser, target, control, discord=False):
             gateway_page.close()
         if target:
             page = context.new_page()
+            media = {"peers": [], "truncated": False, "observer": "available"}
+            try:
+                session = context.new_cdp_session(page)
+                session.on("Network.responseReceived", lambda event: record_media_peer(event, media))
+                session.send("Network.enable")
+                session.send("Network.setCacheDisabled", {"cacheDisabled": True})
+            except Error:
+                media["observer"] = "unavailable"
             page_status = navigation(page, target, 15000)
             state, duration = "page_failed", 0
             if page_status is not None and 200 <= page_status < 300:
@@ -106,7 +177,9 @@ def measure(browser, target, control, discord=False):
                     state, duration = playback(page, 20)
                 except Error:
                     state = "observation_interrupted"
-            sample.update(page_http=page_status, playback=state, continuous_seconds=duration)
+            sample.update(page_http=page_status, playback=state, continuous_seconds=duration, media_network=media)
+        if egress:
+            sample["egress"] = {key: inspect_egress(context, *config) for key, config in egress.items()}
         return sample
     finally:
         context.close()
@@ -133,7 +206,15 @@ def main():
     parser.add_argument("--channel", choices=["msedge", "chrome", "chromium"])
     parser.add_argument("--lab-session", help="Shared ID for one isolated Linux A/B run")
     parser.add_argument("--profile-revision", help="Operator-supplied candidate profile revision")
+    for family in (4, 6):
+        parser.add_argument("--egress-v%d" % family, nargs=2, metavar=("HTTPS_URL", "EXPECTED_CIDR"),
+                            help="Check the source address returned by your HTTPS JSON reflector")
     args = parser.parse_args()
+    try:
+        egress = {"v%d" % family: egress_config(values, family)
+                  for family, values in ((4, args.egress_v4), (6, args.egress_v6)) if values}
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.lab_session is not None or args.profile_revision is not None:
         if not all(re.fullmatch(r"[A-Za-z0-9_.-]{1,96}", v or "")
                    for v in (args.lab_session, args.profile_revision)):
@@ -156,7 +237,7 @@ def main():
                 except (OSError, ValueError) as exc:
                     parser.error(str(exc))
             target = "https://www.youtube.com/watch?v=" + args.video_id if args.video_id else None
-            samples = [measure(browser, target, args.control, args.discord) for _ in range(args.runs)]
+            samples = [measure(browser, target, args.control, args.discord, egress) for _ in range(args.runs)]
         finally:
             browser.close()
     report = {"schema": 2 if args.discord else 1, "source": "client_browser",

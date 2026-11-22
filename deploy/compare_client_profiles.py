@@ -1,6 +1,7 @@
 """Compare two client browser reports from an isolated Linux lab session."""
 import argparse
 import hashlib
+import ipaddress
 import json
 import math
 import os
@@ -71,6 +72,29 @@ def compare(a, b):
     services = (["youtube"] if a.get("video_id") else []) + (["discord_gateway"] if all(discord) else [])
     if not services:
         raise ValueError("no common application probe")
+    # Legacy reports have no requested reflector. When enabled, require the same
+    # reflector per family in every trial and a stable expectation per profile.
+    families = set(left[0].get("egress", {}))
+    all_egress_matched = True
+    for samples in (left, right):
+        for sample in samples:
+            checks = sample.get("egress", {})
+            if set(checks) != families or not families <= {"v4", "v6"}:
+                raise ValueError("different egress probe families")
+            for family in families:
+                check = checks[family]
+                if (not check.get("target_sha256") or
+                        check["target_sha256"] != left[0]["egress"][family]["target_sha256"] or
+                        not check.get("expected") or
+                        check["expected"] != samples[0]["egress"][family]["expected"]):
+                    raise ValueError("inconsistent egress probe configuration")
+                if check.get("status") == "matched":
+                    address = ipaddress.ip_address(check.get("address"))
+                    network = ipaddress.ip_network(check["expected"])
+                    if family != f"v{address.version}" or address not in network:
+                        raise ValueError("reported egress match contradicts address or family")
+                else:
+                    all_egress_matched = False
     times = [[capture_time(s) for s in samples] for samples in (left, right)]
     if any(any(y <= x for x, y in zip(t, t[1:])) for t in times):
         raise ValueError("unordered or duplicate samples")
@@ -94,6 +118,11 @@ def compare(a, b):
                        ("failure", "observed"): "only_second_observed",
                        ("observed", "observed"): "both_observed",
                        ("failure", "failure"): "both_failed"}.get(states.pop(), outcome)
+        if families:
+            for pair, first, second in zip(pairs, left, right):
+                pair["egress"] = [s["egress"] for s in (first, second)]
+            if not all_egress_matched:
+                outcome = "inconclusive"
         result["comparison"][service] = dict(outcome=outcome, pairs=pairs)
     return result
 
