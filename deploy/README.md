@@ -75,3 +75,30 @@ python deploy/probe_client_path.py --gateway vpnguard --host example.org
 Начиная с 1.9.28 поле `policyRevision` содержит SHA-256 скомпилированной конфигурации nftables и запланированных команд маршрутизации. Маркер появляется при применении правил. Значение относится к моменту наблюдения сокета. Фактическое состояние таблиц ip и ревизия в момент создания соединения требуют отдельного измерения. Поле `pinnedExit` расшифровывает фиксированную метку conntrack. Для динамического выхода сохраняется исходный `pinByte`.
 
 Значение `correlation=pin_and_observed_policy` означает, что найден один поток с известным закреплением, а шлюз прочитал одинаковую таблицу с ревизией до и после снимка. Для старой таблицы вернётся `unversioned_table`, для нулевой или неизвестной метки — `unpinned` или `unknown_pin`. При смене или недоступности таблицы ревизия пуста.
+
+## Попарное сравнение испытательных профилей
+
+На одном испытательном Linux-хосте подготовьте два сетевых пространства с разрешёнными выходами и нужными профилями. Установите Playwright и Chromium для обычного пользователя. Пример для Bash запускает одинаковые пробы одновременно. Задайте фактические ревизии ваших профилей вместо примеров `base-v1` и `candidate-v2`. При работе из виртуального окружения `command -v python3` должен указывать на его интерпретатор.
+
+```bash
+(
+  set -eu
+  session="lab-$(date -u +%Y%m%dT%H%M%SZ)"
+  mkdir "$session"
+  probe=( "$(command -v python3)" "$PWD/deploy/probe_client_playback.py"
+          --lab-session "$session" --video-id jNQXAC9IVRw --discord
+          --control https://example.org/ --runs 3 )
+  sudo -v
+  sudo -n ip netns exec vg-base sudo -H -u "$(id -un)" -- "${probe[@]}" \
+    --path-label vg-base --profile-revision base-v1 > "$session/base.json" &
+  base_pid=$!
+  sudo -n ip netns exec vg-candidate sudo -H -u "$(id -un)" -- "${probe[@]}" \
+    --path-label vg-candidate --profile-revision candidate-v2 > "$session/candidate.json" &
+  candidate_pid=$!
+  wait "$base_pid"
+  wait "$candidate_pid"
+  python3 deploy/compare_client_profiles.py "$session/base.json" "$session/candidate.json"
+)
+```
+
+Сравнение принимает 2–5 повторов при одинаковых целях, версии и канале браузера. Начало двух замеров в паре может различаться максимум на 120 секунд. Для каждого приложения результат указывает, где функция наблюдалась во всех повторах. Сбой независимого HTTPS-контроля, прерванное наблюдение и смешанные исходы дают `inconclusive`. Контрольный адрес хранится в виде SHA-256. Идентификаторы ядра и пространства привязывают наблюдение к месту запуска браузера. Ревизию и соответствие профиля фактическому сетевому выходу проверяет оператор.

@@ -131,7 +131,13 @@ def main():
     parser.add_argument("--path-label", required=True, help="Operator label for the configured client path")
     parser.add_argument("--runs", type=int, choices=range(1, 6), default=2)
     parser.add_argument("--channel", choices=["msedge", "chrome", "chromium"])
+    parser.add_argument("--lab-session", help="Shared ID for one isolated Linux A/B run")
+    parser.add_argument("--profile-revision", help="Operator-supplied candidate profile revision")
     args = parser.parse_args()
+    if args.lab_session is not None or args.profile_revision is not None:
+        if not all(re.fullmatch(r"[A-Za-z0-9_.-]{1,96}", v or "")
+                   for v in (args.lab_session, args.profile_revision)):
+            parser.error("provide both lab session and profile revision (1-96 identifier characters)")
     if not args.video_id and not args.discord:
         parser.error("select --video-id or --discord or both")
     if args.video_id and not re.fullmatch(r"[A-Za-z0-9_-]{11}", args.video_id):
@@ -141,12 +147,22 @@ def main():
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel=args.channel)
         try:
+            lab = None
+            if args.lab_session:
+                from compare_client_profiles import lab_context
+                try:
+                    lab = lab_context(args.lab_session, args.profile_revision, args.control,
+                                      browser.version, args.channel)
+                except (OSError, ValueError) as exc:
+                    parser.error(str(exc))
             target = "https://www.youtube.com/watch?v=" + args.video_id if args.video_id else None
             samples = [measure(browser, target, args.control, args.discord) for _ in range(args.runs)]
         finally:
             browser.close()
     report = {"schema": 2 if args.discord else 1, "source": "client_browser",
               "operator_path_label": args.path_label, "samples": samples}
+    if lab:
+        report.update(schema=3, lab=lab)
     if args.video_id:
         report.update(video_id=args.video_id, result=conclusion(samples))
     print(json.dumps(report, ensure_ascii=False, indent=2))
