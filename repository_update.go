@@ -32,6 +32,7 @@ var updateGuard []byte
 var repositoryInstaller []byte
 
 type repositoryRelease struct {
+	Changes []string          `json:"changes,omitempty"`
 	Version string            `json:"version"`
 	SHA256  map[string]string `json:"sha256"`
 }

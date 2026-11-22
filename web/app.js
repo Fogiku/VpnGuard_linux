@@ -443,7 +443,8 @@ function pUpdates() {
     <div class="row"><button id="rcheck"${disabled}>Проверить обновления</button>
     ${!S.sim && repositoryRelease?.available && repositoryRelease.version !== S.version && !['downloading','installed','prepared'].includes(job.status) ? `<button class="p" id="rinstall"${disabled}>Установить ${esc(repositoryRelease.version)}</button>` : ''}
     ${job.canConfirm ? `<button class="p" id="rconfirm"${disabled}>Проверить связь и подтвердить</button>` : ''}</div>
-    ${repositoryRelease ? `<p>Последний выпуск: ${esc(repositoryRelease.version)} · установлен: ${esc(S.version)}</p>` : ''}
+    ${repositoryRelease ? `<p>Последний выпуск: ${esc(repositoryRelease.version)} · установлен: ${esc(S.version)}</p>
+      ${repositoryRelease.available ? `<ul>${(repositoryRelease.changes || []).map(c => `<li>${esc(c)}</li>`).join('')}</ul><a href="https://github.com/Fogiku/VpnGuard_linux/blob/v${encodeURIComponent(repositoryRelease.version)}/CHANGELOG.md">Журнал доступной версии</a>` : ''}` : ''}
     ${job.status ? `<p>${esc(job.version)} · ${esc(jobStatus[job.status] || job.status)} ${esc(job.message || '')}</p>` : ''}
     ${repositoryError ? `<p class="err">${esc(repositoryError)}</p>` : ''}</div>`;
   setHtml(`<div class="card"><div class="sec">Linux · ${esc(S.version)}</div><p class="sub">Для первого перехода со старой версии можно использовать Windows.</p><div class="row"><a href="Update-VpnGuard.ps1" download>Скачать скрипт для Windows</a><a href="https://github.com/Fogiku/VpnGuard_linux#обновление-шлюза-из-windows">Инструкция по обновлению</a></div></div>` + actions + developmentHtml() +

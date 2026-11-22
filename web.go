@@ -201,7 +201,7 @@ func startWeb(listen string) error {
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"version": r.Version, "available": newerRelease(r.Version, Version)}, nil
+		return map[string]any{"version": r.Version, "available": newerRelease(r.Version, Version), "changes": r.Changes}, nil
 	})
 	api("repository/install", true, func(b map[string]json.RawMessage) (any, error) {
 		return "Обновление запущено", startRepositoryUpdate(str(b, "version"), str(b, "_remoteIP"))
