@@ -36,13 +36,26 @@ type ruleCount struct {
 	Packets *uint64 `json:"packets"`
 	Bytes   *uint64 `json:"bytes"`
 }
+type packetTotals struct {
+	Packets uint64 `json:"packets"`
+	Bytes   uint64 `json:"bytes"`
+}
+
+type zapretTraffic struct {
+	Out *packetTotals `json:"out,omitempty"`
+	TCP *packetTotals `json:"tcp,omitempty"`
+	UDP *packetTotals `json:"udp,omitempty"`
+	Bps *float64      `json:"bps,omitempty"`
+}
+
 type ruleCountView struct {
-	Revision  uint64      `json:"revision"`
-	At        int64       `json:"at"`
-	Applied   string      `json:"applied"`
-	Rows      []ruleCount `json:"rows"`
-	Truncated bool        `json:"truncated"`
-	Error     string      `json:"error,omitempty"`
+	Zapret    zapretTraffic `json:"zapret"`
+	Revision  uint64        `json:"revision"`
+	At        int64         `json:"at"`
+	Applied   string        `json:"applied"`
+	Rows      []ruleCount   `json:"rows"`
+	Truncated bool          `json:"truncated"`
+	Error     string        `json:"error,omitempty"`
 }
 
 var networkTelemetry struct {
@@ -197,7 +210,7 @@ func ruleLabels() map[string]string {
 	return labels
 }
 
-func parseRuleCounts(output string, labels map[string]string) ([]ruleCount, bool, error) {
+func parseRuleCounts(output string, labels map[string]string, traffic *zapretTraffic) ([]ruleCount, bool, error) {
 	if len(output) > 4<<20 {
 		return nil, false, fmt.Errorf("ответ nft превышает 4 МиБ")
 	}
@@ -209,10 +222,7 @@ func parseRuleCounts(output string, labels map[string]string) ([]ruleCount, bool
 				Chain   string `json:"chain"`
 				Comment string `json:"comment"`
 				Expr    []struct {
-					Counter *struct {
-						Packets uint64 `json:"packets"`
-						Bytes   uint64 `json:"bytes"`
-					} `json:"counter"`
+					Counter *packetTotals `json:"counter"`
 				} `json:"expr"`
 			} `json:"rule"`
 		} `json:"nftables"`
@@ -224,10 +234,26 @@ func parseRuleCounts(output string, labels map[string]string) ([]ruleCount, bool
 	found := map[string]totals{}
 	for _, entry := range doc.Nftables {
 		r := entry.Rule
-		if r == nil || r.Family != "inet" || r.Table != "vpnguard" || r.Chain != "classify" {
+		if r == nil || r.Family != "inet" || r.Table != "vpnguard" {
 			continue
 		}
-		if _, ok := labels[r.Comment]; !ok {
+		if r.Chain == "zapret" {
+			for _, expr := range r.Expr {
+				if expr.Counter == nil {
+					continue
+				}
+				switch r.Comment {
+				case "zapret.out":
+					traffic.Out = expr.Counter
+				case "zapret.queue.tcp":
+					traffic.TCP = expr.Counter
+				case "zapret.queue.udp":
+					traffic.UDP = expr.Counter
+				}
+			}
+			continue
+		}
+		if _, ok := labels[r.Comment]; !ok || r.Chain != "classify" {
 			continue
 		}
 		for _, expr := range r.Expr {
@@ -262,6 +288,17 @@ func parseRuleCounts(output string, labels map[string]string) ([]ruleCount, bool
 	return rows, truncated, nil
 }
 
+func zapretOutRate(previous, current ruleCountView) *float64 {
+	a, b := previous.Zapret.Out, current.Zapret.Out
+	dt := current.At - previous.At
+	if previous.Error != "" || current.Error != "" || previous.Revision != current.Revision ||
+		dt <= 0 || dt > 20 || a == nil || b == nil || b.Bytes < a.Bytes || b.Packets < a.Packets {
+		return nil
+	}
+	rate := float64(b.Bytes-a.Bytes) * 8 / float64(dt)
+	return &rate
+}
+
 func collectRuleCounts() {
 	if routesStarting.Load() || !applyMu.TryLock() {
 		return
@@ -272,7 +309,7 @@ func collectRuleCounts() {
 	if code != 0 {
 		view.Error = "Не удалось прочитать счётчики nft"
 	} else {
-		rows, truncated, err := parseRuleCounts(output, ruleLabels())
+		rows, truncated, err := parseRuleCounts(output, ruleLabels(), &view.Zapret)
 		if err != nil {
 			view.Error = err.Error()
 		} else {
@@ -280,6 +317,7 @@ func collectRuleCounts() {
 		}
 	}
 	networkTelemetry.Lock()
+	view.Zapret.Bps = zapretOutRate(networkTelemetry.Counters, view)
 	networkTelemetry.Counters = view
 	networkTelemetry.Unlock()
 }
@@ -311,6 +349,9 @@ func networkHistoryValues(values map[string]float64, now int64) {
 	}
 	counts := networkTelemetry.Counters
 	if counts.Revision == routeCounterRevision.Load() && counts.Applied != "" && counts.Error == "" && now-counts.At <= 20 && now >= counts.At {
+		if counts.Zapret.Bps != nil {
+			values["zapret.out_bps"] = *counts.Zapret.Bps
+		}
 		for _, r := range counts.Rows {
 			if r.Packets != nil && r.Bytes != nil {
 				values["rule."+r.Tag+".packets"] = float64(*r.Packets)

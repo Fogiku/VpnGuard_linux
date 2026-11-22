@@ -49,12 +49,12 @@ func TestRuleCountersAggregatePortsAndPreserveUnknown(t *testing.T) {
 		return fmt.Sprintf(`{"rule":{"family":"inet","table":%q,"chain":%q,"comment":%q,"expr":[{"counter":{"packets":%d,"bytes":%d}}]}}`, table, chain, tag, p, b)
 	}
 	doc := `{"nftables":[` + strings.Join([]string{entry("vpnguard", "classify", "p1_r1", 2, 120), entry("vpnguard", "classify", "p1_r1", 3, 240), entry("other", "classify", "p1_r1", 999, 999), entry("vpnguard", "other", "p1_r1", 999, 999), entry("vpnguard", "classify", "foreign", 999, 999)}, ",") + `]}`
-	rows, truncated, err := parseRuleCounts(doc, map[string]string{"p1_r1": "Rule", "p1_r2": "Uncompiled rule"})
+	rows, truncated, err := parseRuleCounts(doc, map[string]string{"p1_r1": "Rule", "p1_r2": "Uncompiled rule"}, &zapretTraffic{})
 	if err != nil || truncated || len(rows) != 2 || *rows[0].Packets != 5 || *rows[0].Bytes != 360 || rows[1].Packets != nil {
 		t.Fatal("counter ownership or aggregation failed", rows, err)
 	}
 	for _, bad := range []string{`{`, `{"nftables":[` + entry("vpnguard", "classify", "p1_r1", ^uint64(0), 1) + `,` + entry("vpnguard", "classify", "p1_r1", 1, 1) + `]}`} {
-		if _, _, err := parseRuleCounts(bad, map[string]string{"p1_r1": "Rule"}); err == nil {
+		if _, _, err := parseRuleCounts(bad, map[string]string{"p1_r1": "Rule"}, &zapretTraffic{}); err == nil {
 			t.Fatal("invalid counter accepted")
 		}
 	}
@@ -153,7 +153,7 @@ func TestRuleCountersIsolatedKernel(t *testing.T) {
 		if code != 0 {
 			t.Fatal(out)
 		}
-		rows, _, err := parseRuleCounts(out, map[string]string{"p1_r1": "Loopback"})
+		rows, _, err := parseRuleCounts(out, map[string]string{"p1_r1": "Loopback"}, &zapretTraffic{})
 		if err != nil || len(rows) != 1 || rows[0].Packets == nil || *rows[0].Packets < 10 || rows[0].Bytes == nil || *rows[0].Bytes == 0 {
 			t.Fatal("real counters missing", rows, err, out)
 		}
@@ -161,5 +161,66 @@ func TestRuleCountersIsolatedKernel(t *testing.T) {
 			t.Fatal("reading reset a counter")
 		}
 		previous = *rows[0].Packets
+	}
+}
+
+func TestZapretRates(t *testing.T) {
+	sample := func(at int64, bytes uint64) ruleCountView {
+		return ruleCountView{At: at, Revision: 1, Zapret: zapretTraffic{Out: &packetTotals{Bytes: bytes}}}
+	}
+	old := sample(100, 1000)
+	for _, tc := range []struct {
+		at    int64
+		bytes uint64
+		want  float64
+	}{
+		{110, 2000, 800}, {110, 1000, 0}, {121, 3000, -1}, {110, 20, -1},
+	} {
+		got := zapretOutRate(old, sample(tc.at, tc.bytes))
+		if tc.want < 0 && got != nil || tc.want >= 0 && (got == nil || *got != tc.want) {
+			t.Fatalf("unexpected speed %+v: %v", tc, got)
+		}
+	}
+	next := sample(110, 2000)
+	next.Revision++
+	if zapretOutRate(old, next) != nil || zapretOutRate(ruleCountView{}, next) != nil {
+		t.Fatal("invalid baseline")
+	}
+}
+
+func TestZapretCountersKernel(t *testing.T) {
+	if os.Getenv("VPNGUARD_NETNS_TEST") != "1" {
+		t.Skip("requires isolated Linux network namespace")
+	}
+	old := S
+	S = realSys{}
+	defer func() { S = old }()
+	kernelCommand(t, "ip", "link", "set", "lo", "up")
+	// Mark only the fixture sender. Count all selected packets; queue a subset.
+	script := "table inet vpnguard {\n chain output { type route hook output priority mangle; policy accept; ip saddr 127.0.0.2 meta mark set 0x13\n }\n" +
+		zapretCounterChain(`meta mark 0x13 oifname "lo"`) + "}\n"
+	if out, code := S.Run(4*time.Second, script, "nft", "-f", "-"); code != 0 {
+		t.Fatal(out)
+	}
+	kernelCommand(t, "sysctl", "-w", "net.netfilter.nf_conntrack_acct=1")
+	// Include marked traffic outside the queue's port filter and unmarked traffic to port 443.
+	kernelCommand(t, "python3", "-c", `import socket
+for port in (443,1443):
+    with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as listener:
+        listener.bind(("127.0.0.1",port))
+        listener.settimeout(2)
+        for addr in ("127.0.0.2","127.0.0.3"):
+            with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as client:
+                client.bind((addr,0))
+                for i in range(12):
+                    client.sendto(b'x',listener.getsockname())
+                    listener.recvfrom(64)`)
+	data, code := run("nft", "-j", "list", "table", "inet", "vpnguard")
+	var v zapretTraffic
+	if _, _, err := parseRuleCounts(data, nil, &v); code != 0 || err != nil || v.Out == nil || v.UDP == nil || v.TCP == nil {
+		t.Fatal(data, err)
+	}
+	if v.Out.Packets != 24 || v.Out.Bytes != 24*29 || v.UDP.Packets != 9 || v.TCP.Packets != 0 {
+		t.Fatalf("unexpected counts out=%+v udp=%+v tcp=%+v", v.Out, v.UDP, v.TCP)
 	}
 }

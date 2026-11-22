@@ -29,6 +29,7 @@ jobs:
           sudo unshare --net env VPNGUARD_PATH_NETNS=1 python3 -m unittest discover -s deploy -p test_client_path.py
           go test -c -o "$RUNNER_TEMP/vpnguard-path.test"
           sudo unshare --net sh -c 'ip link set lo up && VPNGUARD_TEST_WG_PATH=1 "$1" -test.run "^TestWireGuardClientPolicy$" -test.v' sh "$RUNNER_TEMP/vpnguard-path.test"
+          sudo unshare --net env VPNGUARD_NETNS_TEST=1 "$RUNNER_TEMP/vpnguard-path.test" -test.run '^TestZapretCountersKernel$' -test.v
           sudo env VPNGUARD_TEST_PROFILE_NETNS=1 python3 -m unittest discover -s deploy -p test_compare_client_profiles.py
       - name: Verify browser egress evidence against a local HTTPS server
         run: |

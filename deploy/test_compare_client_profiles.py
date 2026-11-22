@@ -33,6 +33,10 @@ class CompareTests(unittest.TestCase):
         result = compare(self.a, self.b)["comparison"]
         self.assertEqual(result["youtube"]["outcome"], "inconclusive")
         self.assertEqual(result["discord_gateway"]["pairs"][1]["states"][1], "control_inconclusive")
+        totals = result["youtube"]["sample_counts"]
+        self.assertEqual(totals[0]["failure"], 2)
+        self.assertEqual(totals[1]["observed"], 1)
+        self.assertEqual(totals[1]["control_inconclusive"], 1)
 
     def test_unconfirmed_mixed_and_interruptions(self):
         for status in ("unconfirmed", "observation_interrupted", "media_error"):

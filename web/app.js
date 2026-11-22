@@ -172,15 +172,34 @@ function moduleBlock(m) {
     (m.actions && m.actions.length ? `<div class="row" style="margin-top:10px">${m.actions.map((a, i) => `<button type="button" class="${a.danger ? 'bad' : ''}" data-ma="${i}">${esc(a.title)}</button>`).join('')}</div>` : '') + '</div>' +
     (m.tables || []).map((t, ti) => blockHtml(t, ti)).join('') + fieldsHtml(m, pre, 'Настройки: ' + m.name) + '</div>';
 }
+function zapretTrafficHtml() {
+  const view = S.networkTelemetry?.counters;
+  const age = Date.now() / 1000 - (view?.at || 0);
+  const traffic = view && !view.error && S.networkTelemetry.countersCurrent && age >= -2 && age <= 20 ? view.zapret : null;
+  const total = value => value ? value.packets.toLocaleString('ru-RU') + ' пак. · ' + value.bytes.toLocaleString('ru-RU') + ' Б' : '—';
+  return `<div class="sec">Трафик zapret2</div><div class="card">
+    <div class="kpi"><div class="v">${traffic?.bps != null ? rate(traffic.bps) : '—'}</div><div class="sub">Исходящая скорость через zapret2</div></div>
+    <canvas class="chart" data-ch="zapret.out_bps" style="height:80px"></canvas>
+    ${!traffic?.out ? '<p class="sub">Нет свежего счётчика выхода zapret2.</p>' : traffic.bps == null ? '<p class="sub">Для скорости нужен второй замер.</p>' : ''}
+    <table class="kv"><tr><td>Всего направлено в WAN</td><td>${total(traffic?.out)}</td></tr>
+    <tr><td>К очереди nfqws2 · TCP</td><td>${total(traffic?.tcp)}</td></tr>
+    <tr><td>К очереди nfqws2 · UDP</td><td>${total(traffic?.udp)}</td></tr></table>
+    <p class="sub">Счётчики с последнего применения правил. Очередь учитывает совпадения первых пакетов соединения. Подтверждение обработки процессом и входящий трафик в эти значения не входят.</p></div>`;
+}
 function pModule() {
   const m = M(PAGE), st = m.status, tb = (m.tables || []).map((t, ti) => [t, ti]);
   const top = tb.filter(x => x[0].top).map(x => blockHtml(x[0], x[1])).join(''), rest = tb.filter(x => !x[0].top).map(x => blockHtml(x[0], x[1])).join('');
+  const traffic = m.id === 'zapret' ? zapretTrafficHtml() : '';
   const html = hero(st.level, st.busy ? 'Выполняется: ' + st.busy : st.state, st.why) +
-    (st.kv.length ? `<div class="card"><table class="kv">${st.kv.map(k => `<tr><td>${esc(k[0])}</td><td>${esc(k[1])}</td></tr>`).join('')}</table></div>` : '') + top +
+    (st.kv.length ? `<div class="card"><table class="kv">${st.kv.map(k => `<tr><td>${esc(k[0])}</td><td>${esc(k[1])}</td></tr>`).join('')}</table></div>` : '') + traffic + top +
     (m.actions && m.actions.length ? `<div class="sec">Управление</div><div class="row">${m.actions.map((a, i) => `<button type="button" class="${a.danger ? 'bad' : ''}" data-ma="${i}">${esc(a.title)}</button>`).join('')}</div>` : '') +
     (m.fieldsTop ? fieldsHtml(m) + rest : rest + fieldsHtml(m));
-  if (!setHtml(html, PAGE + JSON.stringify([st, m.tables, m.fields, m.actions, probeProblemsOnly]))) return;
+  if (!setHtml(html, PAGE + JSON.stringify([st, m.tables, m.fields, m.actions, probeProblemsOnly, traffic, traffic && S.networkTelemetry?.counters?.at]))) return;
   bindModule(m);
+  if (traffic) {
+    const cv = document.querySelector('[data-ch="zapret.out_bps"]');
+    get('history').then(h => { if (cv?.isConnected) drawRateChart(cv, h.series['zapret.out_bps'] || []); }).catch(() => {});
+  }
 }
 // ---------------------------------------------------------------- маршруты
 function RT() { // рабочая копия маршрутов в том виде, в каком её принимает сервер
@@ -323,11 +342,13 @@ async function pMon() {
   const mods = S.modules.filter(m => m.id !== 'block' && !m.aux), cl = S.routes.clients;
   const storage = h.storage || {}, saved = storage.savedAt ? new Date(storage.savedAt * 1000).toLocaleTimeString('ru-RU') : 'ожидается';
   setHtml(`<div class="card"><p class="sub">История за последние ${span} мин, шаг 5 с. Полоса — состояние (зелёный норма, жёлтый предупреждение, красный сбой), линия — скорость. Пробелы означают отсутствие измерений.</p><span class="sub">Сохраняется до часа истории и 200 решений, максимум 4 МиБ. Запись каждые 30 с; последняя: ${esc(saved)}.${storage.error ? ` <b class="c2">Ошибка сохранения: ${esc(storage.error)}</b>` : ''}</span></div>` + networkTelemetryHtml() + `
-    <div class="sec">Узлы</div><div class="card">${mods.map(m => `<div class="chartrow"><div><b>${esc(m.name)}</b><div class="sub">${esc(m.status.state)}</div></div><div><div class="tl" data-tl="${m.id}"></div><canvas class="chart" data-ch="${m.id}.rx" style="height:${sr(m.id + '.rx').length ? 70 : 0}px"></canvas></div><div class="kpi"><div class="v">${avail(m.id)}</div><div class="sub">доступность</div></div></div>`).join('')}</div>
+    <div class="sec">Узлы</div><div class="card">${mods.map(m => `<div class="chartrow"><div><b>${esc(m.name)}</b><div class="sub">${esc(m.status.state)}</div></div><div><div class="tl" data-tl="${m.id}"></div><canvas class="chart" data-ch="${m.id === 'zapret' ? 'zapret.out_bps' : m.id + '.rx'}" style="height:${sr(m.id === 'zapret' ? 'zapret.out_bps' : m.id + '.rx').length ? 70 : 0}px"></canvas></div><div class="kpi"><div class="v">${avail(m.id)}</div><div class="sub">доступность</div></div></div>`).join('')}</div>
     <div class="sec">Клиенты</div><div class="card">${cl.map(c => `<div class="chartrow"><div><b>${esc(c.name)}</b><div class="sub">${c.ip}</div></div><canvas class="chart" data-ch="client.${c.ip}" style="height:60px"></canvas><div class="kpi"><div class="v" style="font-size:16px">${c.on ? rate(c.tx) : '—'}</div><div class="sub">сейчас ↓</div></div></div>`).join('')}</div>`);
   document.querySelectorAll('[data-tl]').forEach(el => { const a = sr(el.dataset.tl + '.level'), step = Math.max(1, Math.floor(a.length / 240)); let s = ''; for (let i = 0; i < a.length; i += step) { const bucket = a.slice(i, i + step); s += `<i class="l${bucket.some(v => v == null) ? -1 : Math.max(...bucket)}"></i>`; } el.innerHTML = s; });
-  document.querySelectorAll('[data-ch]').forEach(cv => {
-    const a = sr(cv.dataset.ch); if (!a.length || !cv.clientHeight) return; const w = cv.width = cv.clientWidth * 2, hh = cv.height = cv.clientHeight * 2, g = cv.getContext('2d'), mx = Math.max(...a.filter(v => typeof v === 'number'), 1);
+  document.querySelectorAll('[data-ch]').forEach(cv => drawRateChart(cv, sr(cv.dataset.ch)));
+}
+function drawRateChart(cv, a) {
+    if (!a.length || !cv.clientHeight) return; const w = cv.width = cv.clientWidth * 2, hh = cv.height = cv.clientHeight * 2, g = cv.getContext('2d'), mx = Math.max(...a.filter(v => typeof v === 'number'), 1);
     const css = getComputedStyle(document.documentElement); g.strokeStyle = css.getPropertyValue('--grid'); g.lineWidth = 1; for (let i = 1; i < 4; i++) { g.beginPath(); g.moveTo(0, hh * i / 4); g.lineTo(w, hh * i / 4); g.stroke(); }
     const x = i => a.length > 1 ? i * w / (a.length - 1) : 0;
     g.strokeStyle = css.getPropertyValue('--accent'); g.lineWidth = 3; g.fillStyle = 'rgba(57,208,255,.12)';
@@ -338,7 +359,6 @@ async function pMon() {
       else if (start >= 0) { g.stroke(); g.lineTo(x(i - 1), hh); g.lineTo(x(start), hh); g.closePath(); g.fill(); start = -1; }
     }
     g.fillStyle = css.getPropertyValue('--dim'); g.font = '20px Segoe UI, sans-serif'; g.fillText('макс. ' + rate(mx), 8, 22);
-  });
 }
 // ---------------------------------------------------------------- диагностика
 function dpiReportLines(history) {

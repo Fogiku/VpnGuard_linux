@@ -218,6 +218,16 @@ func (p compiledRoutes) ipCommands() [][]string {
 	return append(append([][]string(nil), p.beforeNFT...), p.afterNFT...)
 }
 
+func zapretCounterChain(match string) string {
+	return fmt.Sprintf(`  chain zapret {
+    type filter hook postrouting priority mangle; policy accept;
+    %[1]s counter comment "zapret.out"
+    %[1]s tcp dport { 80, 443 } ct original packets 1-9 counter queue num 200 bypass comment "zapret.queue.tcp"
+    %[1]s udp dport 443 ct original packets 1-9 counter queue num 200 bypass comment "zapret.queue.udp"
+  }
+`, match)
+}
+
 func compileRoutes(reg routeRegistry) compiledRoutes {
 	var plan compiledRoutes
 	rtMu.Lock()
@@ -350,7 +360,7 @@ func compileRoutes(reg routeRegistry) compiledRoutes {
 	b.WriteString("  }\n")
 	if z := mod("zapret"); z != nil && z.Status().Up {
 		q := fmt.Sprintf("meta mark 0x%x oifname \"%s\"", z.Exit().Mark, wan)
-		fmt.Fprintf(&b, "  chain zapret {\n    type filter hook postrouting priority mangle; policy accept;\n    %s tcp dport { 80, 443 } ct original packets 1-9 counter queue num 200 bypass\n    %s udp dport 443 ct original packets 1-9 counter queue num 200 bypass\n  }\n", q, q)
+		b.WriteString(zapretCounterChain(q))
 	}
 	fmt.Fprintf(&b, "  chain nat {\n    type nat hook postrouting priority srcnat; policy accept;\n    ip saddr %s.0/24 oifname != \"%s\" masquerade\n  }\n}\n", sub, wg)
 	for _, m := range Mods {

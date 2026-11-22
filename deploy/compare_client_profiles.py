@@ -123,7 +123,13 @@ def compare(a, b):
                 pair["egress"] = [s["egress"] for s in (first, second)]
             if not all_egress_matched:
                 outcome = "inconclusive"
-        result["comparison"][service] = dict(outcome=outcome, pairs=pairs)
+        counts = []
+        for index in range(2):
+            summary = dict(observed=0, failure=0, control_inconclusive=0, inconclusive=0)
+            for pair in pairs:
+                summary[pair["states"][index]] += 1
+            counts.append(summary)
+        result["comparison"][service] = dict(outcome=outcome, pairs=pairs, sample_counts=counts)
     return result
 
 
