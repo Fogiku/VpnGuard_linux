@@ -52,7 +52,7 @@ def capture(iface, stream):
             stream.write(struct.pack('<IIII', stamp // 1000000, stamp % 1000000, used, size))
             stream.write(buf[:used])
             count += 1
-        end = time.time_ns() // 1000000
+        end = (time.time_ns() + 999999) // 1000000
         # PACKET_STATISTICS contains packet and kernel-drop counts.
         _, drops = struct.unpack('=II', sock.getsockopt(263, 6, 8))
     stream.flush()

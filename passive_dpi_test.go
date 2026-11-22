@@ -43,24 +43,59 @@ func TestPassiveDPIWireGuardSample(t *testing.T) {
 	for _, args := range [][]string{{"ip", "addr", "add", "10.99.0.2/24", "dev", "wg_peer"}, {"ip", "link", "set", "wg_peer", "up"}} {
 		kernelCommand(t, append([]string{"nsenter", "-t", client, "-n"}, args...)...)
 	}
+	const rule = "table inet dpi_test { chain input { type filter hook input priority filter; ct state new counter; }\n}\n"
+	if out, code := S.Run(3*time.Second, rule, "nft", "-f", "-"); code != 0 {
+		t.Fatal(out)
+	}
+	events := startFlowEvents(realSys{})
+	defer events.stop()
+	waitEventReady(t, events)
 	_, ready := kernelPython(t, client, `import socket,time
 s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
 print("ready",flush=True)
-for _ in range(200):
+for _ in range(400):
     s.sendto(bytes.fromhex("000101000001000000000000076578616d706c6504746573740000010001"),("10.99.0.1",53))
     time.sleep(.05)
 `)
 	if ready() != "ready" {
 		t.Fatal("client failed")
 	}
-	table := sampleDPITable("wg_server")
-	for _, row := range table.Rows {
-		if row[0] == "DNS" && row[1] == "1" {
-			t.Log(table.Note, row)
-			return
+	deadline := time.Now().Add(6 * time.Second)
+	for {
+		b, err := events.dpiBoundary()
+		ready := false
+		for _, l := range b.Frame.Rows {
+			if l.Row.DestinationPort == 53 {
+				ready = true
+			}
 		}
+		if err == nil && ready {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("DNS NEW not observed")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("DNS absent: %+v", table)
+	oldCfg := cfgMap
+	cfgMap = map[string]string{"flows.enabled": "true", "flows.eventsEnabled": "true", "flows.dpiEnabled": "true"}
+	defer func() { cfgMap = oldCfg }()
+	m := &flowModule{events: events}
+	m.Tick()
+	if len(m.bindings) != 1 || m.dpi == nil || len(m.dpi.Rows) != 1 || m.dpi.Rows[0][0] != "DNS" {
+		t.Fatalf("unexpected sample: %+v, bindings %d", m.dpi, len(m.bindings))
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, row := range m.Tables()[0].Rows {
+			if row[1] == "udp" && row[3] == "10.99.0.1:53" && row[5] == "DNS" {
+				t.Log("WG conntrack row", row)
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("confirmed DNS generation missing from connection table", m.Tables()[0])
 }
 
 type sampleTestSys struct {

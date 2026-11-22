@@ -132,7 +132,19 @@ def stream_events():
             while True:
                 now = time.monotonic()
                 if now >= next_heartbeat:
-                    print(json.dumps(registry.frame()), flush=True)
+                    # A heartbeat alone does not prove that queued DESTROY/NEW events
+                    # were consumed. Only an empty nonblocking read supplies a cutoff.
+                    sock.setblocking(False)
+                    drained_at = 0
+                    for _ in range(64):
+                        before_read = time.time_ns()
+                        try:
+                            data, ancillary, flags, sender = sock.recvmsg(1 << 20)
+                        except BlockingIOError:
+                            drained_at = before_read
+                            break
+                        registry.datagram(data, sender, flags, time.time())
+                    print(json.dumps(dict(registry.frame(), drainedAtNs=drained_at)), flush=True)
                     next_heartbeat = now + 1
                 sock.settimeout(max(0.001, next_heartbeat - time.monotonic()))
                 try:

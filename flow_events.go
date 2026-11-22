@@ -34,6 +34,7 @@ type lifecycleSummary struct {
 	lifecycleCounters
 }
 type flowEventFrame struct {
+	DrainedAtNs int64 `json:"drainedAtNs"`
 	lifecycleCounters
 	Epoch string         `json:"epoch"`
 	Rows  []flowLifetime `json:"rows"`

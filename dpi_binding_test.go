@@ -37,3 +37,37 @@ func TestDPIBindingRejectsReusedAndAmbiguousLifetime(t *testing.T) {
 		}
 	}
 }
+
+func TestDisplayedDPILabelExpiresWithGeneration(t *testing.T) {
+	now := time.Now()
+	id := uint32(99)
+	r := flowRow{Protocol: "udp", Source: "10.0.0.1", Destination: "10.0.0.2", SourcePort: 12123, DestinationPort: 53, ConntrackID: &id}
+	d := dpiObservation{Flow: r, Source: wgMod.iface()}
+	d.Flow.Application = "DNS"
+	life := flowLifetime{Generation: "epoch:1", Row: r}
+	s := &flowEventSession{last: now, frame: flowEventFrame{Epoch: "epoch", DrainedAtNs: now.UnixNano(), Rows: []flowLifetime{life}}}
+	m := &flowModule{at: now.Add(-time.Millisecond), rows: []flowRow{r}, events: s, bindings: map[string]dpiBinding{life.Generation: {Epoch: "epoch", Generation: life.Generation, Observation: d}}}
+	label := func(want string) {
+		t.Helper()
+		if got := m.Tables()[0].Rows[0][5]; got != want {
+			t.Fatalf("want %s got %s", want, got)
+		}
+	}
+	label("DNS")
+	s.frame.Rows[0].Generation = "epoch:2"
+	label("Unknown")
+	s.frame.Rows[0] = life
+	s.frame.DrainedAtNs = m.at.Add(-time.Millisecond).UnixNano()
+	label("Unknown")
+	s.frame.DrainedAtNs = now.UnixNano()
+	m.truncated = true
+	label("Unknown")
+	m.truncated = false
+	extra := r
+	extra.Zone = 3
+	m.rows = append(m.rows, extra)
+	label("Unknown")
+	m.rows = m.rows[:1]
+	s.failed = true
+	label("Unknown")
+}

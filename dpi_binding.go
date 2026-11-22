@@ -12,14 +12,18 @@ type dpiBoundary struct {
 }
 
 func (s *flowEventSession) dpiBoundary() (dpiBoundary, error) {
+	if s == nil {
+		return dpiBoundary{}, fmt.Errorf("events disabled")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.failed || s.frame.Epoch == "" || time.Since(s.last) > 4*time.Second {
+	cutoff := time.Unix(0, s.frame.DrainedAtNs)
+	if s.failed || s.frame.Epoch == "" || cutoff.After(s.last) || time.Since(cutoff) > 4*time.Second {
 		return dpiBoundary{}, fmt.Errorf("event continuity unavailable")
 	}
 	f := s.frame
 	f.Rows = append([]flowLifetime(nil), s.frame.Rows...)
-	return dpiBoundary{Frame: f, At: s.last}, nil
+	return dpiBoundary{Frame: f, At: cutoff}, nil
 }
 
 type dpiBinding struct {
@@ -57,4 +61,48 @@ func bindDPIObservation(d dpiObservation, c dpiCapture, before, after dpiBoundar
 		return fail()
 	}
 	return dpiBinding{Epoch: before.Frame.Epoch, Generation: a.Generation, Observation: d}, nil
+}
+
+// Labels apply to the generation observed on both sides of the sample.
+// Recheck the current frame after the snapshot, including zone and original tuple.
+type dpiTuple struct {
+	Protocol, Source, Destination string
+	SourcePort, DestinationPort   int
+}
+
+func originalTuple(r flowRow) dpiTuple {
+	return dpiTuple{r.Protocol, r.Source, r.Destination, r.SourcePort, r.DestinationPort}
+}
+
+type dpiRowKey struct {
+	ID   uint32
+	Zone uint16
+	dpiTuple
+}
+
+func dpiKey(r flowRow) dpiRowKey {
+	return dpiRowKey{*r.ConntrackID, r.Zone, originalTuple(r)}
+}
+
+func (m *flowModule) snapshotLabels() map[dpiRowKey]dpiObservation {
+	if len(m.bindings) == 0 || m.at.IsZero() || m.truncated {
+		return nil
+	}
+	current, err := m.events.dpiBoundary()
+	if err != nil || current.At.Before(m.at) {
+		return nil
+	}
+	// The DPI export has no zone. Suppress tuples duplicated in the full snapshot.
+	counts := map[dpiTuple]int{}
+	for _, r := range m.rows {
+		counts[originalTuple(r)]++
+	}
+	labels := map[dpiRowKey]dpiObservation{}
+	for _, life := range current.Frame.Rows {
+		b, ok := m.bindings[life.Generation]
+		if ok && b.Epoch == current.Frame.Epoch && life.Row.ConntrackID != nil && counts[originalTuple(life.Row)] == 1 && b.Observation.Source == wgMod.iface() {
+			labels[dpiKey(life.Row)] = b.Observation
+		}
+	}
+	return labels
 }
