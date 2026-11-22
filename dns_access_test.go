@@ -237,7 +237,7 @@ finally: s.close()`
 	if len(table.Rows) != 1 || strings.Join(table.Rows[0][:7], ",") != "LAN,192.168.60.2,2,1,1,0,0" {
 		t.Fatal("unexpected sent replies", table.Rows)
 	}
-	if !strings.Contains(e.peerCoverage("192.168.60.2", "example.test", "203.0.113.1"), "РѕСЃС‚Р°С‚РѕРє TTL") {
+	if !strings.Contains(e.peerCoverage("192.168.60.2", "example.test", "203.0.113.1"), "остаток TTL") {
 		t.Fatal("missing LAN reply")
 	}
 	if queries != 2 {
