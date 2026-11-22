@@ -172,7 +172,7 @@ func (m *dnsModule) Set(key, value string) error {
 	return nil
 }
 func (m *dnsModule) Actions() []Action {
-	return []Action{{ID: "compare-address", Title: "Сверить адрес клиента с правилом", Args: []Field{{Key: "name", Title: "Домен", Type: "text"}, {Key: "ip", Title: "IPv4 на клиенте", Type: "text"}, {Key: "rule", Title: "Правило", Type: "select"}}}, {ID: "lookup", Title: "Проверить локальный DNS", Args: []Field{{Key: "name", Title: "Домен", Type: "text", Value: "example.com"}}}, {ID: "wg-profiles", Title: "DNS шлюза в экспортируемых WG-профилях"}}
+	return []Action{{ID: "compare-address", Title: "Сверить адрес клиента с правилом", Args: []Field{{Key: "name", Title: "Домен", Type: "text"}, {Key: "ip", Title: "IPv4 на клиенте", Type: "text"}, {Key: "rule", Title: "Правило", Type: "select"}, {Key: "client", Title: "Адрес DNS-клиента WG/LAN (необязательно)", Type: "text"}}}, {ID: "lookup", Title: "Проверить локальный DNS", Args: []Field{{Key: "name", Title: "Домен", Type: "text", Value: "example.com"}}}, {ID: "wg-profiles", Title: "DNS шлюза в экспортируемых WG-профилях"}}
 }
 func (m *dnsModule) Do(id string, args map[string]string) (string, error) {
 	if id == "compare-address" {
@@ -286,7 +286,7 @@ func (m *dnsModule) Tables() []Table {
 		}
 		rows = append(rows, []string{name, strings.Join(values, ", "), fmt.Sprint(ttl), entry.Source, entry.Seen.UTC().Format("2006-01-02 15:04:05")})
 	}
-	return []Table{{Title: "Доступ к DNS", Cols: []string{"Вход", "UDP/TCP", "Интерфейс", "Разрешённые источники"}, Rows: listenerRows, Note: "WG обслуживается только через WireGuard; LAN — из перечисленных подсетей. DNS в экспортируемых WG-профилях: " + clients["wgProfileDNS"].(string) + ". Для уже импортированных профилей обновите строку DNS на устройствах. AAAA отклоняется; IPv6-трафик и DoH/DoT клиентов этим не ограничиваются."}, {Title: "TTL-кэш маршрутизации · первые 100 имён", Cols: []string{"Домен", "IPv4", "Осталось, с", "Последний ответ", "Получен, UTC"}, Rows: rows, Note: "Кэш хранится в памяти: только A из совпадающих с запросом ответов для доменов правил и их поддоменов, до 512 имён и 64 адресов на имя. Записи с TTL=0 не удерживаются. Самостоятельной DNSSEC-валидации нет."}}
+	return []Table{{Title: "Доступ к DNS", Cols: []string{"Вход", "UDP/TCP", "Интерфейс", "Разрешённые источники"}, Rows: listenerRows, Note: "WG обслуживается только через WireGuard; LAN — из перечисленных подсетей. DNS в экспортируемых WG-профилях: " + clients["wgProfileDNS"].(string) + ". Для уже импортированных профилей обновите строку DNS на устройствах. AAAA отклоняется; IPv6-трафик и DoH/DoT клиентов этим не ограничиваются."}, {Title: "TTL-кэш маршрутизации · первые 100 имён", Cols: []string{"Домен", "IPv4", "Осталось, с", "Последний ответ", "Получен, UTC"}, Rows: rows, Note: "Кэш хранится в памяти: только A из совпадающих с запросом ответов для доменов правил и их поддоменов, до 512 имён и 64 адресов на имя. Записи с TTL=0 не удерживаются. Самостоятельной DNSSEC-валидации нет."}, routingDNS.peerTable()}
 }
 
 func dnsErrorReply(packet []byte, code dnsmessage.RCode) []byte {
@@ -355,9 +355,9 @@ func startDNSListener(address string, e *dnsEngine, apply func() error) (func(),
 	if err != nil || !udpAddress.IP.IsLoopback() {
 		return nil, fmt.Errorf("DNS разрешён только на loopback")
 	}
-	return startDNSListenerWithAccess(address, "", newDNSAccessPolicy(func(ip net.IP) bool { return ip.IsLoopback() }), e, apply)
+	return startDNSListenerWithAccess(address, "", "", newDNSAccessPolicy(func(ip net.IP) bool { return ip.IsLoopback() }), e, apply)
 }
-func startDNSListenerWithAccess(address, iface string, policy *dnsAccessPolicy, e *dnsEngine, apply func() error) (func(), error) {
+func startDNSListenerWithAccess(address, iface, kind string, policy *dnsAccessPolicy, e *dnsEngine, apply func() error) (func(), error) {
 	udpAddress, err := net.ResolveUDPAddr("udp4", address)
 	if err != nil || udpAddress.IP.To4() == nil || !udpAddress.IP.IsLoopback() && (!privateIPv4(udpAddress.IP) || iface == "") || policy == nil {
 		return nil, fmt.Errorf("DNS: нужен loopback либо частный IPv4 с привязкой к интерфейсу и ACL")
@@ -416,7 +416,9 @@ func startDNSListenerWithAccess(address, iface string, policy *dnsAccessPolicy, 
 					default:
 					}
 					if policy.allows(peer.IP) {
-						_, _ = udp.WriteToUDP(reply, peer)
+						if n, err := udp.WriteToUDP(reply, peer); err == nil && n == len(reply) {
+							e.sentDNS(kind, peer.IP.String(), false, reply)
+						}
 					}
 				}()
 			default:
@@ -472,9 +474,10 @@ func startDNSListenerWithAccess(address, iface string, policy *dnsAccessPolicy, 
 						}
 						binary.BigEndian.PutUint16(size[:], uint16(len(reply)))
 						_ = c.SetWriteDeadline(time.Now().Add(3 * time.Second))
-						if _, err := c.Write(append(size[:], reply...)); err != nil {
+						if written, err := c.Write(append(size[:], reply...)); err != nil || written != len(reply)+2 {
 							return
 						}
+						e.sentDNS(kind, peer.IP.String(), true, reply)
 					}
 				}()
 			default:

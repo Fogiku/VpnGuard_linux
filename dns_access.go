@@ -214,7 +214,7 @@ func (m *dnsModule) prepareClients(plans []dnsClientPlan) (map[string]*dnsClient
 			continue
 		}
 		policy := newDNSAccessPolicy(func(net.IP) bool { return false })
-		stop, err := startDNSListenerWithAccess(plan.Address, plan.Interface, policy, routingDNS, dnsApplyAnswer)
+		stop, err := startDNSListenerWithAccess(plan.Address, plan.Interface, plan.Kind, policy, routingDNS, dnsApplyAnswer)
 		if err != nil {
 			m.discardClients(staged)
 			return nil, fmt.Errorf("DNS %s (%s): %w", plan.Kind, plan.Address, err)

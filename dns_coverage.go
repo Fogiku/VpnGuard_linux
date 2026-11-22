@@ -99,6 +99,18 @@ func compareDNSAddress(args map[string]string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("выберите существующее правило")
 	}
+	peer := ""
+	if client := strings.TrimSpace(args["client"]); client != "" {
+		addr, err := netip.ParseAddr(client)
+		if err != nil || !addr.Is4() {
+			return "", fmt.Errorf("нужен IPv4 источника DNS-запроса")
+		}
+		detail := "наблюдение недоступно"
+		if routingDNS != nil {
+			detail = routingDNS.peerCoverage(addr.String(), name, ip.String())
+		}
+		peer = "\nОтвет DNS-клиенту: " + detail + "."
+	}
 	set := routeAddressSet(tag)
 	cache := dnsCacheCoverage(name, ip.String())
 	kernel := "набор недоступен"
@@ -115,5 +127,5 @@ func compareDNSAddress(args map[string]string) (string, error) {
 			kernel = "адрес отсутствует в действующем наборе"
 		}
 	}
-	return fmt.Sprintf("%s · %s\nTTL-кэш шлюза: %s.\nПравило «%s»: %s.\nПроверено %s UTC. Совпадение адреса — одно из условий правила; выход конкретного соединения проверяется отдельно.", name, ip, cache, title, kernel, time.Now().UTC().Format("15:04:05")), nil
+	return fmt.Sprintf("%s · %s\nTTL-кэш шлюза: %s.%s\nПравило «%s»: %s.\nПроверено %s UTC. Совпадение адреса — одно из условий правила; выход конкретного соединения проверяется отдельно.", name, ip, cache, peer, title, kernel, time.Now().UTC().Format("15:04:05")), nil
 }

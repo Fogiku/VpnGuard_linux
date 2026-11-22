@@ -21,6 +21,7 @@ type dnsEntry struct {
 	Seen      time.Time
 }
 type dnsEngine struct {
+	peers             map[dnsPeerKey]*dnsPeerStats
 	mu                sync.Mutex
 	entries           map[string]dnsEntry
 	tracked           map[string]time.Time

@@ -51,7 +51,7 @@ func TestDNSRevokesExistingTCPAccess(t *testing.T) {
 	address := reserve.Addr().String()
 	reserve.Close()
 	policy := newDNSAccessPolicy(func(ip net.IP) bool { return ip.IsLoopback() })
-	stop, err := startDNSListenerWithAccess(address, "", policy, e, nil)
+	stop, err := startDNSListenerWithAccess(address, "", "LAN", policy, e, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,14 @@ func TestDNSRevokesExistingTCPAccess(t *testing.T) {
 	}
 	e.mu.Lock()
 	queries := e.queries
+	table := e.peerTable()
 	e.mu.Unlock()
+	if len(table.Rows) != 1 || strings.Join(table.Rows[0][:7], ",") != "LAN,192.168.60.2,2,1,1,0,0" {
+		t.Fatal("unexpected sent replies", table.Rows)
+	}
+	if !strings.Contains(e.peerCoverage("192.168.60.2", "example.test", "203.0.113.1"), "остаток TTL") {
+		t.Fatal("missing LAN reply")
+	}
 	if queries != 1 {
 		t.Fatal("revoked query reached upstream", queries)
 	}
@@ -177,9 +184,10 @@ func TestDNSInterfaceAccessIsolatedKernel(t *testing.T) {
 	e := newDNSEngine(func(q []byte) ([]byte, error) {
 		return dnsTestResponse(q, dnsTestA("example.test", "203.0.113.1", 60)), nil
 	})
+	e.tracked["example.test"] = e.now()
 	_, network, _ := net.ParseCIDR("192.168.60.0/24")
 	policy := newDNSAccessPolicy(func(ip net.IP) bool { return network.Contains(ip) })
-	stop, err := startDNSListenerWithAccess("192.168.60.1:5300", "lan0", policy, e, nil)
+	stop, err := startDNSListenerWithAccess("192.168.60.1:5300", "lan0", "LAN", policy, e, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
