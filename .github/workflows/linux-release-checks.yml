@@ -20,3 +20,10 @@ jobs:
           cache: false
       - run: go test ./...
       - run: python3 -m unittest discover -s deploy
+      - name: Verify client tuple on an isolated Linux kernel network stack
+        run: |
+          if ! command -v nft >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y nftables
+          fi
+          sudo unshare --net env VPNGUARD_PATH_NETNS=1 python3 -m unittest discover -s deploy -p test_client_path.py

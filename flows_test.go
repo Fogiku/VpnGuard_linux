@@ -79,3 +79,14 @@ func TestRemoteFlowCounts(t *testing.T) {
 	flowsMod.truncated = true
 	check(`{"schemaVersion":1,"snapshot":{"at":123,"tcp":1,"udp":2,"truncated":true}}`)
 }
+
+func TestFlowPinByteLabel(t *testing.T) {
+	resources := legacyRouteResources()
+	for mark, want := range map[uint32]string{
+		0xab1100ff: "meduza", 0x1411: "—", 0x00fe0000: "0xfe",
+	} {
+		if got := flowPinLabel(mark, resources); got != want {
+			t.Errorf("mark %#x: got %q, want %q", mark, got, want)
+		}
+	}
+}

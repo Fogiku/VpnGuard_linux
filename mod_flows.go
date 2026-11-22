@@ -162,11 +162,25 @@ func (m *flowModule) lifecycle() *lifecycleSummary {
 	return m.events.summary()
 }
 
+func flowPinLabel(mark uint32, resources []routeResource) string {
+	pin := (mark >> 16) & 0xff
+	if pin == 0 {
+		return "—"
+	}
+	for _, r := range resources {
+		if r.Mark == pin {
+			return r.Owner
+		}
+	}
+	return fmt.Sprintf("0x%02x", pin)
+}
+
 func (m *flowModule) Tables() []Table {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	labels := m.snapshotLabels()
 	rows := [][]string{}
+	fixedResources := legacyRouteResources()
 	for i, r := range m.rows {
 		id := "нет ID"
 		app, observedAt := "Unknown", "—"
@@ -177,7 +191,7 @@ func (m *flowModule) Tables() []Table {
 			}
 			id = strconv.FormatUint(uint64(*r.ConntrackID), 10)
 		}
-		rows = append(rows, []string{strconv.Itoa(i), r.Protocol, fmt.Sprintf("%s:%d", r.Source, r.SourcePort), fmt.Sprintf("%s:%d", r.Destination, r.DestinationPort), fmt.Sprintf("0x%08x", r.Mark), app, id, strconv.Itoa(int(r.Zone)), observedAt})
+		rows = append(rows, []string{strconv.Itoa(i), r.Protocol, fmt.Sprintf("%s:%d", r.Source, r.SourcePort), fmt.Sprintf("%s:%d", r.Destination, r.DestinationPort), fmt.Sprintf("0x%08x", r.Mark), app, id, strconv.Itoa(int(r.Zone)), observedAt, flowPinLabel(r.Mark, fixedResources)})
 	}
 	note := "Метка nDPI относится к последней выборке и подтверждённому поколению conntrack. Порт 443 не доказывает HTTPS/QUIC; ECH и приложения не определяются. Маршруты не изменяются."
 	if !m.at.IsZero() {
@@ -190,7 +204,7 @@ func (m *flowModule) Tables() []Table {
 			note += " Нет свежих данных подписки на события."
 		}
 	}
-	tables := []Table{{Title: "Соединения IPv4", Cols: []string{"ID", "Протокол", "Источник", "Назначение", "ct mark", "Приложение", "Conntrack ID", "Zone", "Наблюдение nDPI"}, Rows: rows, Empty: "Нет снимка", Note: note + " Conntrack ID может повторно использоваться; он не доказывает непрерывность соединения между снимками."}}
+	tables := []Table{{Title: "Соединения IPv4", Cols: []string{"ID", "Протокол", "Источник", "Назначение", "ct mark", "Приложение", "Conntrack ID", "Zone", "Наблюдение nDPI", "Закрепление (биты 16–23)"}, Rows: rows, Empty: "Нет снимка", Note: note + " Для дополнительных выходов показан код закрепления. Фактический интерфейс пакета проверяется отдельно. Conntrack ID может повторно использоваться; он не доказывает непрерывность соединения между снимками."}}
 	if m.dpi != nil {
 		tables = append(tables, *m.dpi, dpiHistoryTable(m.dpiHistory))
 	}

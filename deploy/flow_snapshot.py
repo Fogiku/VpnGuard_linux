@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Bounded, read-only IPv4 conntrack snapshot. No payload or application inference."""
+import argparse
+import hashlib
+import ipaddress
 import json
+import subprocess
 import socket
 import struct
 import time
@@ -106,5 +110,46 @@ def snapshot(limit=512, seconds=2):
                     return {'rows': rows, 'seen': seen, 'truncated': True}
 
 
+def match_tcp(view, source, sport, destination, dport):
+    if view['truncated']:
+        return {'status': 'incomplete'}
+    matches = [row for row in view['rows']
+               if (row['protocol'], row['source'], row['sourcePort'], row['destination'],
+                   row['destinationPort']) == ('tcp', source, sport, destination, dport)]
+    if not matches:
+        return {'status': 'missing'}
+    if len(matches) != 1:
+        return {'status': 'ambiguous'}
+    row = matches[0]
+    return {'status': 'matched', 'mark': row['mark'], 'pinByte': (row['mark'] >> 16) & 255,
+            'zone': row['zone'], 'conntrackId': row['conntrackId']}
+
+
+def rules_fingerprint():
+    try:
+        result = subprocess.run(['nft', '-s', '-n', 'list', 'table', 'inet', 'vpnguard'],
+                                capture_output=True, timeout=2, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return hashlib.sha256(result.stdout).hexdigest()
+
+
 if __name__ == '__main__':
-    print(json.dumps(snapshot()))
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--match-tcp', nargs=4, metavar=('SRC', 'SPORT', 'DST', 'DPORT'))
+    args = parser.parse_args()
+    if args.match_tcp:
+        src, sport, dst, dport = args.match_tcp
+        src, dst = str(ipaddress.IPv4Address(src)), str(ipaddress.IPv4Address(dst))
+        sport, dport = int(sport), int(dport)
+        if not (1 <= sport <= 65535 and 1 <= dport <= 65535):
+            parser.error('invalid port')
+        before = rules_fingerprint()
+        result = match_tcp(snapshot(), src, sport, dst, dport)
+        after = rules_fingerprint()
+        result['nftTableSHA256'] = before if before == after else None
+        result['nftObservation'] = ('unavailable' if not before or not after else
+                                    'equal_at_both_reads' if before == after else 'changed')
+        print(json.dumps(result))
+    else:
+        print(json.dumps(snapshot()))
