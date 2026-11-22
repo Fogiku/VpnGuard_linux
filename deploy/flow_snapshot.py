@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import ipaddress
 import json
+import re
 import subprocess
 import socket
 import struct
@@ -125,13 +126,44 @@ def match_tcp(view, source, sport, destination, dport):
             'zone': row['zone'], 'conntrackId': row['conntrackId']}
 
 
+def table_identity(raw):
+    markers = re.findall(rb'^\s*chain vg_policy_([a-f0-9]{64}) \{', raw, re.MULTILINE)
+    revision = markers[0].decode('ascii') if len(markers) == 1 else None
+    return hashlib.sha256(raw).hexdigest(), revision
+
+
 def rules_fingerprint():
     try:
         result = subprocess.run(['nft', '-s', '-n', 'list', 'table', 'inet', 'vpnguard'],
                                 capture_output=True, timeout=2, check=True)
     except (OSError, subprocess.SubprocessError):
         return None
-    return hashlib.sha256(result.stdout).hexdigest()
+    return table_identity(result.stdout)
+
+
+def correlate(result, before, after):
+    stable = before is not None and before == after
+    result['nftTableSHA256'] = before[0] if stable else None
+    result['nftObservation'] = ('unavailable' if not before or not after else
+                                'equal_at_both_reads' if stable else 'changed')
+    result['policyRevision'] = before[1] if stable else None
+    pin = result.get('pinByte')
+    result['pinnedExit'] = {17: 'meduza', 18: 'awg', 19: 'zapret', 20: 'direct',
+                            31: 'block'}.get(pin)
+    if result['status'] != 'matched':
+        evidence = result['status']
+    elif not stable:
+        evidence = 'table_' + result['nftObservation']
+    elif not result['policyRevision']:
+        evidence = 'unversioned_table'
+    elif not pin:
+        evidence = 'unpinned'
+    elif not result['pinnedExit']:
+        evidence = 'unknown_pin'
+    else:
+        evidence = 'pin_and_observed_policy'
+    result['correlation'] = evidence
+    return result
 
 
 if __name__ == '__main__':
@@ -147,9 +179,6 @@ if __name__ == '__main__':
         before = rules_fingerprint()
         result = match_tcp(snapshot(), src, sport, dst, dport)
         after = rules_fingerprint()
-        result['nftTableSHA256'] = before if before == after else None
-        result['nftObservation'] = ('unavailable' if not before or not after else
-                                    'equal_at_both_reads' if before == after else 'changed')
-        print(json.dumps(result))
+        print(json.dumps(correlate(result, before, after)))
     else:
         print(json.dumps(snapshot()))

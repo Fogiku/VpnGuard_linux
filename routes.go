@@ -4,6 +4,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -378,7 +379,11 @@ func compileRoutes(reg routeRegistry) compiledRoutes {
 	}
 	// nfqws2 raw packets must bypass tunnel-wide default routing too.
 	plan.afterNFT = append(plan.afterNFT, []string{"rule", "del", "from", "all", "fwmark", "0x40000000/0x40000000", "lookup", "main", "priority", "1201"}, []string{"rule", "add", "fwmark", "0x40000000/0x40000000", "lookup", "main", "priority", "1201"})
-	plan.nft = b.String()
+	script := b.String()
+	// The empty chain travels with the atomic table replacement and with rollback snapshots.
+	encoded, _ := json.Marshal([]any{script, plan.beforeNFT, plan.afterNFT})
+	marker := fmt.Sprintf("  chain vg_policy_%x { }\n", sha256.Sum256(encoded))
+	plan.nft = strings.Replace(script, "table inet vpnguard {\n", "table inet vpnguard {\n"+marker, 1)
 	return plan
 }
 

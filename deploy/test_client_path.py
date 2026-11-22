@@ -11,7 +11,7 @@ import threading
 from unittest import mock
 import unittest
 
-from flow_snapshot import match_tcp
+from flow_snapshot import correlate, match_tcp, table_identity
 
 
 class PathObservationTests(unittest.TestCase):
@@ -28,6 +28,24 @@ class PathObservationTests(unittest.TestCase):
         for change in [dict(sourcePort=30001), dict(destinationPort=80), dict(protocol="udp"),
                        dict(source=row["destination"]), dict(destination=row["source"])]:
             self.assertEqual(lookup([dict(row, **change)])["status"], "missing")
+
+    def test_policy_correlation(self):
+        marker = b'    chain vg_policy_' + b'a' * 64 + b' {\n    }\n'
+        table = table_identity(marker)
+        self.assertEqual(table[1], 'a' * 64)
+        self.assertIsNone(table_identity(marker * 2)[1])
+        old = table_identity(b'table inet vpnguard {}')
+        for before, after, pin, status in [
+                (table, table, 20, 'pin_and_observed_policy'),
+                (table, table, 0, 'unpinned'), (table, table, 37, 'unknown_pin'),
+                (old, old, 20, 'unversioned_table'), (old, table, 20, 'table_changed'),
+                (None, table, 20, 'table_unavailable')]:
+            with self.subTest(status=status):
+                result = correlate({'status': 'matched', 'pinByte': pin}, before, after)
+                self.assertEqual(result['correlation'], status)
+                self.assertEqual(result['policyRevision'], 'a' * 64 if before == after == table else None)
+        for status in ('incomplete', 'missing', 'ambiguous'):
+            self.assertEqual(correlate({'status': status}, table, table)['correlation'], status)
 
     @unittest.skipUnless(os.getenv("VPNGUARD_PATH_NETNS") == "1", "requires disposable Linux netns")
     def test_live_socket(self):

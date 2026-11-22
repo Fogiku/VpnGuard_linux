@@ -19,30 +19,7 @@ func TestPassiveDPIWireGuardSample(t *testing.T) {
 	oldS, oldSim := S, Sim
 	S, Sim = realSys{}, false
 	defer func() { S, Sim = oldS, oldSim }()
-	client := kernelNamespace(t)
-	serverKey, err := ecdh.X25519().GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	clientKey, err := ecdh.X25519().GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	configure := func(iface string, port int, own, peer *ecdh.PrivateKey, allowed, endpoint string) {
-		kernelCommand(t, "ip", "link", "add", iface, "type", "wireguard")
-		cfg := fmt.Sprintf("[Interface]\nListenPort=%d\nPrivateKey=%s\n[Peer]\nPublicKey=%s\nAllowedIPs=%s/32\n%s", port, base64.StdEncoding.EncodeToString(own.Bytes()), base64.StdEncoding.EncodeToString(peer.PublicKey().Bytes()), allowed, endpoint)
-		if _, code := S.Run(3*time.Second, cfg, "wg", "setconf", iface, "/proc/self/fd/0"); code != 0 {
-			t.Fatal("test WireGuard configuration failed")
-		}
-	}
-	configure("wg_server", 41001, serverKey, clientKey, "10.99.0.2", "")
-	configure("wg_peer", 41002, clientKey, serverKey, "10.99.0.1", "Endpoint=127.0.0.1:41001\n")
-	kernelCommand(t, "ip", "link", "set", "wg_peer", "netns", client)
-	kernelCommand(t, "ip", "addr", "add", "10.99.0.1/24", "dev", "wg_server")
-	kernelCommand(t, "ip", "link", "set", "wg_server", "up")
-	for _, args := range [][]string{{"ip", "addr", "add", "10.99.0.2/24", "dev", "wg_peer"}, {"ip", "link", "set", "wg_peer", "up"}} {
-		kernelCommand(t, append([]string{"nsenter", "-t", client, "-n"}, args...)...)
-	}
+	client := wireGuardTestPeer(t)
 	const rule = "table inet dpi_test { chain input { type filter hook input priority filter; ct state new counter; }\n}\n"
 	if out, code := S.Run(3*time.Second, rule, "nft", "-f", "-"); code != 0 {
 		t.Fatal(out)
@@ -177,4 +154,33 @@ func TestPassiveDPISettingsAndExpiredResult(t *testing.T) {
 	if s.probes != probes || len(m.Tables()) != 1 || len(m.diagnosticDPI().Samples) != 0 {
 		t.Fatal("capture still active")
 	}
+}
+
+func wireGuardTestPeer(t *testing.T) string {
+	t.Helper()
+	client := kernelNamespace(t)
+	serverKey, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientKey, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configure := func(iface string, port int, own, peer *ecdh.PrivateKey, allowed, endpoint string) {
+		kernelCommand(t, "ip", "link", "add", iface, "type", "wireguard")
+		cfg := fmt.Sprintf("[Interface]\nListenPort=%d\nPrivateKey=%s\n[Peer]\nPublicKey=%s\nAllowedIPs=%s/32\n%s", port, base64.StdEncoding.EncodeToString(own.Bytes()), base64.StdEncoding.EncodeToString(peer.PublicKey().Bytes()), allowed, endpoint)
+		if _, code := S.Run(3*time.Second, cfg, "wg", "setconf", iface, "/proc/self/fd/0"); code != 0 {
+			t.Fatal("test WireGuard configuration failed")
+		}
+	}
+	configure("wg_server", 41001, serverKey, clientKey, "10.99.0.2", "")
+	configure("wg_peer", 41002, clientKey, serverKey, "10.99.0.1", "Endpoint=127.0.0.1:41001\n")
+	kernelCommand(t, "ip", "link", "set", "wg_peer", "netns", client)
+	kernelCommand(t, "ip", "addr", "add", "10.99.0.1/24", "dev", "wg_server")
+	kernelCommand(t, "ip", "link", "set", "wg_server", "up")
+	for _, args := range [][]string{{"ip", "addr", "add", "10.99.0.2/24", "dev", "wg_peer"}, {"ip", "link", "set", "wg_peer", "up"}} {
+		kernelCommand(t, append([]string{"nsenter", "-t", client, "-n"}, args...)...)
+	}
+	return client
 }

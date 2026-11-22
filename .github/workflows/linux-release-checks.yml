@@ -22,8 +22,10 @@ jobs:
       - run: python3 -m unittest discover -s deploy
       - name: Verify client tuple on an isolated Linux kernel network stack
         run: |
-          if ! command -v nft >/dev/null; then
+          if ! command -v nft >/dev/null || ! command -v wg >/dev/null; then
             sudo apt-get update -qq
-            sudo apt-get install -y nftables
+            sudo apt-get install -y nftables wireguard-tools
           fi
           sudo unshare --net env VPNGUARD_PATH_NETNS=1 python3 -m unittest discover -s deploy -p test_client_path.py
+          go test -c -o "$RUNNER_TEMP/vpnguard-path.test"
+          sudo unshare --net sh -c 'ip link set lo up && VPNGUARD_TEST_WG_PATH=1 "$1" -test.run "^TestWireGuardClientPolicy$" -test.v' sh "$RUNNER_TEMP/vpnguard-path.test"
