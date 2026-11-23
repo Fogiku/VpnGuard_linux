@@ -120,7 +120,7 @@ func (s *simSys) ifaceOK(iface string) bool {
 		return false
 	case iface == "mdz0":
 		return s.units["meduzavpnd"] && s.mdzConn && !(s.fault["meduza.server"] && s.mdzProto == "ultra")
-	case mod("wg-out-"+iface) != nil:
+	case mod("wg-out-"+iface) != nil || mod("olcrtc-out-"+iface) != nil:
 		return true
 	case iface == "eth0":
 		return true
@@ -446,6 +446,11 @@ func (s *simSys) ReadFile(p string) (string, error) {
 	defer s.mu.Unlock()
 	if v, ok := s.files[p]; ok {
 		return v, nil
+	}
+	if name, ok := strings.CutPrefix(p, "/sys/class/net/"); ok {
+		if iface, ok := strings.CutSuffix(name, "/tun_flags"); ok && mod("olcrtc-out-"+iface) != nil {
+			return "0x1001", nil
+		}
 	}
 	return "", os.ErrNotExist
 }

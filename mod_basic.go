@@ -63,6 +63,7 @@ func (m *inet) Tick() {
 func (m *inet) Fields() []Field {
 	return []Field{fb("net.wan", "Интерфейс провайдера", "text", "", "Пусто — определять автоматически"),
 		fb("vpn.extraWireGuard", "Дополнительные выходы WireGuard", "text", "", "Имена настроенных исходящих интерфейсов через запятую. Список вступает в силу после перезапуска VpnGuard."),
+		fb("vpn.olcRTC", "Выходы olcRTC (TCP)", "text", "", "Имена TUN-интерфейсов tun2socks через запятую. Настройте клиент olcRTC и адаптер, сохраните список и перезапустите VpnGuard."),
 		fb("vpn.probeUrl", "Адрес для проверки туннелей", "text", "https://1.1.1.1", ""),
 		fb("net.qualityEnabled", "Измерять качество соединений", "bool", "true", "Пять ICMP-пакетов примерно раз в 30 секунд через WAN и активные VPN. Измерения не переключают маршруты."),
 		fb("net.qualityIP", "IPv4-адрес для измерений", "text", "1.1.1.1", "Один контрольный адрес для RTT, потерь ICMP и изменения RTT. Отсутствие ping не означает недоступность приложений."),
@@ -70,14 +71,24 @@ func (m *inet) Fields() []Field {
 		fb("net.pinFlows", "Сохранять маршрут соединений", "bool", "false", "Новые правила действуют на новые соединения. При отказе выхода существующие потоки блокируются до его восстановления. Выключение разрешает смену пути действующих соединений.")}
 }
 func (m *inet) Set(key, value string) error {
-	if key == "vpn.extraWireGuard" {
-		exits, err := configuredWireGuardExits(value)
+	if key == "vpn.extraWireGuard" || key == "vpn.olcRTC" {
+		m.tk.Lock()
+		defer m.tk.Unlock()
+		wg, olc := cfg("vpn.extraWireGuard", ""), cfg("vpn.olcRTC", "")
+		if key == "vpn.olcRTC" {
+			olc = value
+		} else {
+			wg = value
+		}
+		exits, err := configuredTunnelExits(wg, olc)
 		if err != nil {
 			return err
 		}
 		names := make([]string, 0, len(exits))
 		for _, exit := range exits {
-			names = append(names, exit.iface)
+			if exit.olcRTC == (key == "vpn.olcRTC") {
+				names = append(names, exit.iface)
+			}
 		}
 		return setCfg(key, strings.Join(names, ","))
 	}

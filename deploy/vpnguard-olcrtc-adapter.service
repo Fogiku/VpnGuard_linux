@@ -1,0 +1,17 @@
+[Unit]
+Description=olcRTC TCP adapter for the VpnGuard gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecCondition=/usr/bin/test ! -e /sys/class/net/olc0
+ExecStart=/usr/local/bin/tun2socks -device tun://olc0 -proxy socks5://127.0.0.1:8808 -tun-post-up /usr/local/libexec/vpnguard-olcrtc-link-up
+Restart=on-failure
+RestartSec=5s
+CapabilityBoundingSet=CAP_NET_ADMIN
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

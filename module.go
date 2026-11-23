@@ -64,6 +64,7 @@ type Check struct {
 	Fix      func() (string, error)
 }
 type Exit struct {
+	TCPOnly    bool   `json:"tcpOnly,omitempty"`
 	AutoRoutes bool   `json:"-"` // Дополнительный туннель запрашивает стабильные Mark и Table по ID модуля.
 	Iface      string `json:"iface"`
 	Table      int    `json:"table"` // таблица маршрутизации; 0 — основная

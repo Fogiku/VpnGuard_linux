@@ -41,7 +41,7 @@ func TestWireGuardExitAllocationLifecycle(t *testing.T) {
 		"1103: from all fwmark 0x20 lookup 103\n7: from all fwmark 0x20/0xf0 lookup 104\n1106: from all lookup 201",
 		"default dev foreign table 105"}, t: t, owner: "wg-out-wg1"}
 	S = s
-	exits, err := configuredWireGuardExits("wg1")
+	exits, err := configuredTunnelExits("wg1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestWireGuardExitAllocationLifecycle(t *testing.T) {
 	}
 	// Temporarily remove the instance and register another one.
 	Mods = append([]Module(nil), baseMods...)
-	two := &wireGuardExit{iface: "wg2"}
+	two := &tunnelExit{iface: "wg2"}
 	Register(two)
 	S = occupiedRouteSys{tx, "", ""}
 	two.Tick()
@@ -104,7 +104,7 @@ func TestWireGuardExitAllocationLifecycle(t *testing.T) {
 	if err != nil || len(entries) != 7 || entries[6].Mark == want.Mark || entries[6].Table == want.Table {
 		t.Fatal(entries, err)
 	}
-	Register(&wireGuardExit{iface: "wg1"})
+	Register(&tunnelExit{iface: "wg1"})
 	entries, err = currentRouteResources()
 	if err != nil || entries[6] != want {
 		t.Fatal("returning owner changed", entries, err)
@@ -115,7 +115,7 @@ func TestRouteAssignmentMigrationAndBadState(t *testing.T) {
 	tx := transactionSetup(t)
 	baseMods := Mods
 	defer func() { Mods = baseMods }()
-	m := &wireGuardExit{iface: "wg5"}
+	m := &tunnelExit{iface: "wg5"}
 	entries := append(legacyRouteResources(), routeResource{m.ID(), 0x72, 0xffffffff, "133", 1133})
 	if err := saveJSON(routeLastFile, routeChange{ID: "legacy", Before: &routeSnapshot{resources: entries}}); err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestVPNResourceExhaustion(t *testing.T) {
 func TestConcurrentVPNAssignments(t *testing.T) {
 	if dir := os.Getenv("VPNGUARD_ASSIGNMENTS_DIR"); dir != "" {
 		DataDir, Sim, S = dir, true, newSim()
-		Mods = []Module{&wireGuardExit{iface: os.Getenv("VPNGUARD_ASSIGNMENTS_IFACE")}}
+		Mods = []Module{&tunnelExit{iface: os.Getenv("VPNGUARD_ASSIGNMENTS_IFACE")}}
 		err := routeOperation("concurrent registration", false, false, func() error { return nil })
 		if err != nil {
 			t.Fatal(err)
@@ -212,7 +212,7 @@ func TestVPNAssignmentIsolatedKernel(t *testing.T) {
 	oldS, oldMods, oldData, oldSim, oldCfg := S, Mods, DataDir, Sim, cfgMap
 	defer func() { S, Mods, DataDir, Sim, cfgMap = oldS, oldMods, oldData, oldSim, oldCfg }()
 	S, Sim, DataDir, cfgMap = realSys{}, true, t.TempDir(), map[string]string{"net.wan": "wan0", "net.pinFlows": "true", "dns.enabled": "false"}
-	out := &wireGuardExit{iface: "wg1"}
+	out := &tunnelExit{iface: "wg1"}
 	Mods = []Module{&flowTestExit{id: "direct", iface: "wan0", mark: 0x14}, &flowTestExit{id: "block", mark: 0x1f}, out}
 	rt = defaultRoutes()
 	rt.Profiles[0].Rules = []Rule{{ID: "all", Exit: out.ID(), Last: true}}
@@ -268,5 +268,52 @@ func TestConfiguredWireGuardExits(t *testing.T) {
 	}
 	if cfg("vpn.extraWireGuard", "") != "wg1,wg2" {
 		t.Fatal("rejected setting changed saved interfaces")
+	}
+}
+
+func TestOlcRTCExit(t *testing.T) {
+	tx := transactionSetup(t)
+	orig := append([]Module(nil), Mods...)
+	t.Cleanup(func() { Mods = orig })
+	settings := mod("inet")
+	if err := settings.Set("vpn.extraWireGuard", "wg1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.Set("vpn.olcRTC", " olc0 "); err != nil {
+		t.Fatal(err)
+	}
+	for _, conflict := range [][2]string{{"vpn.olcRTC", "wg1"}, {"vpn.extraWireGuard", "olc0"}, {"vpn.olcRTC", "olc0,olc0"}, {"vpn.olcRTC", "../tun"}} {
+		if settings.Set(conflict[0], conflict[1]) == nil {
+			t.Fatal("accepted collision or invalid name", conflict)
+		}
+	}
+	exits, err := configuredTunnelExits(cfg("vpn.extraWireGuard", ""), cfg("vpn.olcRTC", ""))
+	if err != nil || len(exits) != 2 || exits[0].ID() != "wg-out-wg1" || exits[1].ID() != "olcrtc-out-olc0" {
+		t.Fatal(exits, err)
+	}
+	exit := exits[1]
+	Register(exit)
+	exit.Tick()
+	if !exit.Status().Up || !exit.Exit().TCPOnly {
+		t.Fatal(exit.Status())
+	}
+	rt.Profiles[0].Rules = []Rule{{ID: "olc", Exit: exit.ID(), Last: true}}
+	if err := Apply("olcRTC"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(appliedIP, `"default","dev","olc0"`) || !strings.Contains(applied, "meta l4proto != tcp counter drop") {
+		t.Fatal(applied, appliedIP)
+	}
+	for _, target := range currentQualityTargets() {
+		if target.Iface == "olc0" {
+			t.Fatal("scheduled ICMP over TCP proxy")
+		}
+	}
+	if err := tx.WriteFile("/sys/class/net/olc0/tun_flags", "0x1002", 0600); err != nil {
+		t.Fatal(err)
+	}
+	exit.Tick()
+	if exit.Status().Up {
+		t.Fatal("accepted TAP in place of TUN")
 	}
 }

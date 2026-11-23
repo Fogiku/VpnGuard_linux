@@ -362,6 +362,9 @@ func compileRoutes(reg routeRegistry) compiledRoutes {
 			fmt.Fprintf(&b, "    iifname %q meta mark 0x%x counter drop\n", wg, r.Mark)
 			continue
 		}
+		if e.TCPOnly {
+			fmt.Fprintf(&b, "    iifname %q meta mark 0x%x meta l4proto != tcp counter drop\n", wg, r.Mark)
+		}
 		fmt.Fprintf(&b, "    iifname %q meta mark 0x%x oifname != %q counter drop\n", wg, r.Mark, e.Iface)
 	}
 	if cfgBool("net.pinFlows", false) {

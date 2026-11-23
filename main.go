@@ -69,7 +69,7 @@ func main() {
 			_, err = dnsSettings.plans(Sim)
 		}
 		if err == nil {
-			_, err = configuredWireGuardExits(cfg("vpn.extraWireGuard", ""))
+			_, err = configuredTunnelExits(cfg("vpn.extraWireGuard", ""), cfg("vpn.olcRTC", ""))
 		}
 		if err == nil {
 			err = validateWGExportDNS(cfg("wg.dns", "1.1.1.1"))
@@ -105,7 +105,7 @@ func main() {
 		fmt.Print(r)
 		return
 	}
-	exits, err := configuredWireGuardExits(cfg("vpn.extraWireGuard", ""))
+	exits, err := configuredTunnelExits(cfg("vpn.extraWireGuard", ""), cfg("vpn.olcRTC", ""))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
