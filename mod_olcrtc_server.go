@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	_ "embed"
 	"encoding/hex"
@@ -9,13 +10,38 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 )
 
 //go:embed deploy/vpnguard-olcrtc-peer@.service
 var olcPeerUnit string
+
+//go:embed deploy/install-olcrtc.sh
+var olcInstaller string
+
+var olcInstallMu sync.Mutex
+
+func ensureOlcInstalled() error {
+	olcInstallMu.Lock()
+	defer olcInstallMu.Unlock()
+	if olcInstalled() {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-eu")
+	cmd.Stdin = strings.NewReader(olcInstaller)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("установка olcRTC: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
 
 const olcTemplate = "/etc/systemd/system/vpnguard-olcrtc-peer@.service"
 const olcBinary = "/usr/local/bin/olcrtc"
@@ -93,6 +119,14 @@ func createOlcPeer(name, room string) error {
 		return errors.New("имя устройства: 1–32 символа A–Z, a–z, 0–9, дефис и подчёркивание")
 	}
 	u, err := url.Parse(room)
+	if err == nil && (u.Path == "" || u.Path == "/") {
+		var suffix [16]byte
+		if _, err := rand.Read(suffix[:]); err != nil {
+			return err
+		}
+		u.Path = "/vpnguard-" + hex.EncodeToString(suffix[:])
+		room = u.String()
+	}
 	if err != nil || len(room) > 512 || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || !olcRoomPath.MatchString(u.EscapedPath()) {
 		return errors.New("введите HTTPS-ссылку на отдельную комнату Jitsi")
 	}
@@ -192,7 +226,7 @@ func (m *olcServer) refresh() {
 	}
 	switch {
 	case !olcInstalled():
-		m.setSt(-1, false, "Требуется бинарник olcRTC", "Установите исполняемый файл /usr/local/bin/olcrtc")
+		m.setSt(-1, false, "Требуется бинарник olcRTC", "Нажмите «Установить olcRTC» или запустите службу устройства")
 	case listErr || failed > 0:
 		m.setSt(1, running > 0, "Проверьте службы устройств", "Состояние каждого экземпляра показано в таблице")
 	case running > 0:
@@ -202,7 +236,11 @@ func (m *olcServer) refresh() {
 	}
 }
 func (*olcServer) Actions() []Action {
-	return []Action{{ID: "add", Title: "+ Новый клиент", Args: []Field{{Key: "name", Title: "Имя устройства", Type: "text"}, {Key: "room", Title: "HTTPS-ссылка на комнату Jitsi", Type: "text", Help: "Отдельная комната для этого устройства"}}}}
+	actions := []Action{{ID: "add", Title: "+ Добавить устройство", Args: []Field{{Key: "name", Title: "Имя устройства", Type: "text"}, {Key: "room", Title: "HTTPS-ссылка на сервер или комнату Jitsi", Type: "text", Help: "Укажите адрес доступного устройству сервера Jitsi, чтобы создать отдельное имя комнаты автоматически"}}}}
+	if !olcInstalled() {
+		actions = append(actions, Action{ID: "install", Title: "Установить olcRTC"})
+	}
+	return actions
 }
 func (m *olcServer) Tables() []Table {
 	m.tk.Lock()
@@ -218,6 +256,21 @@ func olcSystemctl(args ...string) error {
 	return nil
 }
 func (m *olcServer) Do(id string, a map[string]string) (string, error) {
+	if id == "install" {
+		if err := ensureOlcInstalled(); err != nil {
+			return "", err
+		}
+		m.Tick()
+		return "olcRTC установлен", nil
+	}
+	if id == "start" && !olcInstalled() {
+		if _, err := readOlcPeer(a["row"]); err != nil {
+			return "", err
+		}
+		if err := ensureOlcInstalled(); err != nil {
+			return "", err
+		}
+	}
 	m.tk.Lock()
 	defer m.tk.Unlock()
 	defer m.refresh()
@@ -235,9 +288,6 @@ func (m *olcServer) Do(id string, a map[string]string) (string, error) {
 	unit := olcUnit(name)
 	switch id {
 	case "start":
-		if !olcInstalled() {
-			return "", errors.New("установите olcRTC в /usr/local/bin/olcrtc")
-		}
 		old, _ := S.ReadFile(olcTemplate)
 		if old != olcPeerUnit {
 			if err := S.WriteFile(olcTemplate, olcPeerUnit, 0644); err != nil {

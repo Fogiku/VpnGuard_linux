@@ -90,6 +90,17 @@ async function runAction(modId, a, row) {
     };
     return;
   } else if (a.confirm && !(await ask(a.confirm, a.title))) return;
+  if (modId === 'olcrtc-server' && (a.id === 'install' || a.id === 'start') &&
+      M(modId).actions.some(action => action.id === 'install')) {
+    modal('<p>Шлюз устанавливает olcRTC. Первая сборка может занять несколько минут.</p>');
+    const progress = $('mbody').firstElementChild;
+    try {
+      await post('do', { module: modId, action: a.id, args: args });
+    } finally {
+      if ($('mbody').firstElementChild === progress) closeModal();
+    }
+    return;
+  }
   await post('do', { module: modId, action: a.id, args: args });
 }
 const M = id => S.modules.find(m => m.id === id);
