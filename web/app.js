@@ -76,6 +76,32 @@ async function runAction(modId, a, row) {
     // форма остаётся открытой, пока действие не выполнено: при ошибке (например, в конфигурации) правки не теряются
     modal(`<div class="sec">${esc(a.title)}</div>${a.confirm ? `<p class="sub">${esc(a.confirm)}</p>` : ''}<form id="af"${a.args.some(f => f.type === 'code') ? ' class="wide"' : ''}><div class="form" style="grid-template-columns:1fr">${a.args.map((f, i) => fieldHtml(f, 'aa' + i)).join('')}</div><div class="row" style="margin-top:12px"><button class="p" type="submit">Выполнить</button><button type="button" id="ac">Отмена</button><span class="err" id="ae"></span></div></form>`);
     $('ac').onclick = () => closeModal();
+    if (modId === 'olcrtc-server' && a.id === 'add') {
+      const field = key => $('aa' + a.args.findIndex(f => f.key === key));
+      const provider = field('provider'), mode = field('room_mode');
+      const room = field('room'), token = field('room_token');
+      const tokenHint = document.createElement('span');
+      tokenHint.className = 'help';
+      token.closest('.field').append(tokenHint);
+      const updateRoomFields = () => {
+        const auto = mode.value === 'auto', jitsi = provider.value === 'jitsi';
+        room.closest('.field').hidden = auto && !jitsi;
+        room.required = !auto || jitsi;
+        room.placeholder = jitsi ? (auto ? 'https://jitsi.example.com' : 'https://jitsi.example.com/room')
+          : provider.value === 'telemost' ? 'ID встречи или https://telemost.yandex.ru/j/…' : 'ID встречи WB Stream';
+        token.closest('.field').hidden = !auto || jitsi;
+        token.required = auto && !jitsi;
+        token.placeholder = provider.value === 'telemost' ? 'OAuth-токен Яндекс Телемоста' : 'Токен аккаунта WB Stream';
+        tokenHint.textContent = provider.value === 'telemost'
+          ? 'Требуется право telemost-api:conferences.create. Токен используется для этого запроса.'
+          : 'Токен сохраняется на шлюзе, чтобы служба могла открыть встречу от имени владельца.';
+      };
+      provider.onchange = mode.onchange = () => {
+        room.value = token.value = '';
+        updateRoomFields();
+      };
+      updateRoomFields();
+    }
     $('af').onsubmit = async ev => {
       ev.preventDefault(); a.args.forEach((f, i) => { args[f.key] = $('aa' + i).value; });
       const b = $('af').querySelector('button[type=submit]'); b.disabled = true; $('ae').textContent = 'Выполняется…';

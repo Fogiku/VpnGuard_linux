@@ -148,6 +148,7 @@ type olcConfig struct {
 	Mode string `json:"mode"`
 	Auth struct {
 		Provider string `json:"provider"`
+		Token    string `json:"token,omitempty"`
 	} `json:"auth"`
 	Room struct {
 		ID string `json:"id"`
@@ -206,21 +207,41 @@ func olcRoomID(provider, room string) (string, error) {
 	return room, nil
 }
 
-func createOlcPeer(name, provider, room string) error {
+func createOlcPeer(name, provider, room, token string, automatic bool) error {
 	if !olcPeerID.MatchString(name) {
 		return errors.New("имя устройства: 1–32 символа A–Z, a–z, 0–9, дефис и подчёркивание")
 	}
 	if provider == "" {
 		provider = "jitsi"
 	}
-	room, err := olcRoomID(provider, room)
-	if err != nil {
-		return err
+	if automatic && provider == "jitsi" {
+		server, err := url.Parse(room)
+		if err != nil || (server.Path != "" && server.Path != "/") {
+			return errors.New("для новой комнаты Jitsi укажите HTTPS-адрес сервера без имени комнаты")
+		}
 	}
-	if err = os.MkdirAll(olcDir(), 0700); err != nil {
+	if err := os.MkdirAll(olcDir(), 0700); err != nil {
 		return err
 	}
 	peers, err := os.ReadDir(olcDir())
+	if err != nil {
+		return err
+	}
+	for _, p := range peers {
+		if p.Name() == name+".yaml" {
+			return errors.New("имя клиента уже используется")
+		}
+	}
+	if automatic && provider != "jitsi" {
+		if Sim {
+			return errors.New("создание встречи через внешний сервис недоступно в симуляторе")
+		}
+		room, err = requestOlcRoom(olcRoomClient, provider, token)
+		if err != nil {
+			return err
+		}
+	}
+	room, err = olcRoomID(provider, room)
 	if err != nil {
 		return err
 	}
@@ -243,6 +264,9 @@ func createOlcPeer(name, provider, room string) error {
 	var c olcConfig
 	c.Mode = "srv"
 	c.Auth.Provider = provider
+	if automatic && provider == "wbstream" {
+		c.Auth.Token = token
+	}
 	c.Room.ID = room
 	c.Net.Transport = "vp8channel"
 	if provider == "jitsi" {
@@ -329,7 +353,9 @@ func (*olcServer) Actions() []Action {
 	actions := []Action{{ID: "add", Title: "+ Добавить устройство", Args: []Field{
 		{Key: "name", Title: "Имя устройства", Type: "text"},
 		{Key: "provider", Title: "Сервис", Type: "select", Value: "jitsi", Options: []Opt{{"jitsi", "Jitsi"}, {"telemost", "Яндекс Телемост"}, {"wbstream", "WB Stream"}}},
-		{Key: "room", Title: "Комната", Type: "text", Help: "Для Jitsi укажите HTTPS-адрес сервера или комнаты. Для Телемоста введите ID встречи или ссылку telemost.yandex.ru/j/… . Для WB Stream введите ID встречи, созданной на stream.wb.ru."},
+		{Key: "room_mode", Title: "Комната", Type: "select", Value: "auto", Options: []Opt{{"auto", "Создать автоматически"}, {"existing", "Использовать готовую"}}},
+		{Key: "room", Title: "Адрес или ID", Type: "text"},
+		{Key: "room_token", Title: "Токен для создания встречи", Type: "password"},
 	}}}
 	if !olcInstalled() {
 		actions = append(actions, Action{ID: "install", Title: "Установить olcRTC"})
@@ -369,7 +395,8 @@ func (m *olcServer) Do(id string, a map[string]string) (string, error) {
 	defer m.tk.Unlock()
 	defer m.refresh()
 	if id == "add" {
-		if err := createOlcPeer(strings.TrimSpace(a["name"]), a["provider"], strings.TrimSpace(a["room"])); err != nil {
+		if err := createOlcPeer(strings.TrimSpace(a["name"]), a["provider"], strings.TrimSpace(a["room"]), strings.TrimSpace(a["room_token"]), a["room_mode"] == "auto"); err != nil {
+			Log("ERROR", "olcRTC: добавление устройства: %v", err)
 			return "", err
 		}
 		return "Профиль создан", nil
@@ -427,6 +454,7 @@ func (m *olcServer) clientConfig(name string) (string, error) {
 		return "", err
 	}
 	c.Mode = "cnc"
+	c.Auth.Token = ""
 	c.Socks = &olcSocks{Host: "127.0.0.1", Port: 8808}
 	b, err := json.MarshalIndent(c, "", "  ")
 	return string(b) + "\n", err

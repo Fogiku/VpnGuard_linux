@@ -61,7 +61,7 @@ func TestOlcRoomForEachDevice(t *testing.T) {
 	setup(t)
 	rooms := map[string]bool{}
 	for _, name := range []string{"phone", "tablet"} {
-		if err := createOlcPeer(name, "jitsi", "https://meet.example.org/"); err != nil {
+		if err := createOlcPeer(name, "jitsi", "https://meet.example.org/", "", true); err != nil {
 			t.Fatal(err)
 		}
 		c, err := readOlcPeer(name)
@@ -86,9 +86,22 @@ func TestOlcProviderProfiles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if tc.provider == "wbstream" {
+			server.Auth.Token = "server-only-token"
+			data, err := json.Marshal(server)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = os.WriteFile(filepath.Join(olcDir(), tc.provider+".yaml"), data, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
 		profile, err := inboundOlc.clientConfig(tc.provider)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if strings.Contains(profile, "server-only-token") {
+			t.Fatal("account token leaked in client profile")
 		}
 		var client olcConfig
 		if err := json.Unmarshal([]byte(profile), &client); err != nil {
