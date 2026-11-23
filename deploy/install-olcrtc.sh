@@ -25,9 +25,11 @@ phase "Проверка и распаковка Go"
 printf '%s  %s\n' "$digest" "$archive" | sha256sum -c -
 tar -xzf "$archive"
 cd source
+# A systemd service may have no home directory or writable user cache.
+export GOMODCACHE="$work/modcache" GOCACHE="$work/buildcache"
 export GOPROXY="${GOPROXY:-https://proxy.golang.org|direct}"
 phase "Загрузка зависимостей и сборка olcRTC"
-CGO_ENABLED=0 GOTOOLCHAIN=local "$work/go/bin/go" build -mod=readonly -trimpath -o "$work/olcrtc" ./cmd/olcrtc
+CGO_ENABLED=0 GOTOOLCHAIN=local "$work/go/bin/go" build -mod=readonly -trimpath -buildvcs=false -o "$work/olcrtc" ./cmd/olcrtc
 phase "Установка бинарника"
 install -d /usr/local/bin
 stage=$(mktemp /usr/local/bin/.olcrtc-XXXXXX)
