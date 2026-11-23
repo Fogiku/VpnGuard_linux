@@ -29,7 +29,7 @@ cd source
 export GOMODCACHE="$work/modcache" GOCACHE="$work/buildcache"
 export GOPROXY="${GOPROXY:-https://proxy.golang.org|direct}"
 phase "Загрузка зависимостей и сборка olcRTC"
-CGO_ENABLED=0 GOTOOLCHAIN=local "$work/go/bin/go" build -mod=readonly -trimpath -buildvcs=false -o "$work/olcrtc" ./cmd/olcrtc
+CGO_ENABLED=0 GOTOOLCHAIN=local "$work/go/bin/go" build -mod=readonly -modcacherw -trimpath -buildvcs=false -o "$work/olcrtc" ./cmd/olcrtc
 phase "Установка бинарника"
 install -d /usr/local/bin
 stage=$(mktemp /usr/local/bin/.olcrtc-XXXXXX)
