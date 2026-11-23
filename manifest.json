@@ -1,15 +1,15 @@
 {
-  "version": "1.9.44",
-  "source": "c881bdd1bc773587dd3189acdc2ee0eb256c1c59",
+  "version": "1.9.45",
+  "source": "acf5c5671dc13e653322ca8918a43278f81512b4",
   "sha256": {
-    "amd64": "dacafad51dd57dad815dd9e9d57ab4289bbda910798cfe828fe974b59156058a",
-    "arm64": "b0d3f875b151290e5a7722dd33d1e388e92224d59cfc9b28390399e812fef6ff"
+    "amd64": "23c056eaf059e051a09d383f570b5d1d62625896e01ca64e66a752f8709b64a3",
+    "arm64": "bc77d817b966024d14100ed453fa49dff74208a96c321eacc2e368ebea6f2cdb"
   },
   "helpers": {
     "guarded_update.py": "6f318ca0f14789d5efcbf6a85b9712c55c240423ba4d5cf2cc760f985ccf43f9",
     "route_guard.py": "bda39fa92512ae004fe671178e02ecd014b64e9edc2b39b1824ecff05550afcf"
   },
   "changes": [
-    "Добавлен сервер whitelist-bypass для Телемоста с управлением комнатой. olcRTC отключён по умолчанию и доступен через переключатель в настройках сети."
+    "Панель Whitelist Bypass показывает участников по событиям текущего запуска, входящий и исходящий трафик службы, состояние и число автоматических перезапусков. На странице доступен Android-клиент 0.5.2."
   ]
 }
