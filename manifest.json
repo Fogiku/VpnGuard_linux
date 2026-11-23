@@ -1,15 +1,15 @@
 {
-  "version": "1.9.39",
-  "source": "8d9114cd3cbc8fae5ee517f6c6c21431dcd8aa67",
+  "version": "1.9.40",
+  "source": "5cc0165735f9746504821d4d1772ea0e779f853c",
   "sha256": {
-    "amd64": "4432cdf56033d24f43972be1c839e0a0f9407bf86287bf0c99c5c2301c548e9b",
-    "arm64": "5d899eb9d74938f5a3a6a4460033db2a032bfd02678fbdc4d543f33fbdca5735"
+    "amd64": "b473037e15c4b3a0b286e01779bb5cd3fedace21531fa7d2bce9df07f53e5715",
+    "arm64": "479a78ff2947f5c55753db4f0bf3046272c391ea12e4c3fa1d047ab8c5c99d98"
   },
   "helpers": {
     "guarded_update.py": "6f318ca0f14789d5efcbf6a85b9712c55c240423ba4d5cf2cc760f985ccf43f9",
     "route_guard.py": "bda39fa92512ae004fe671178e02ecd014b64e9edc2b39b1824ecff05550afcf"
   },
   "changes": [
-    "Панель устанавливает olcRTC и выдаёт профили для Jitsi, Яндекс Телемоста и WB Stream."
+    "Страница olcRTC-Server показывает текущий этап установки, прошедшее время и результат. Ошибки с указанием этапа и сообщением установщика доступны в веб-журнале."
   ]
 }
