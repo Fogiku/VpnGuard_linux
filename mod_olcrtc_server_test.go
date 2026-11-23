@@ -56,3 +56,18 @@ func TestInboundOlcClientLifecycle(t *testing.T) {
 		t.Fatal("revoked profile still available")
 	}
 }
+
+func TestOlcRoomForEachDevice(t *testing.T) {
+	setup(t)
+	rooms := map[string]bool{}
+	for _, name := range []string{"phone", "tablet"} {
+		if err := createOlcPeer(name, "https://meet.example.org/"); err != nil {
+			t.Fatal(err)
+		}
+		c, err := readOlcPeer(name)
+		if err != nil || !strings.HasPrefix(c.Room.ID, "https://meet.example.org/vpnguard-") || rooms[c.Room.ID] {
+			t.Fatal("expected a distinct room on the selected server", err)
+		}
+		rooms[c.Room.ID] = true
+	}
+}
