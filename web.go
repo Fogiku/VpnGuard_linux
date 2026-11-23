@@ -87,6 +87,7 @@ func buildState() map[string]any {
 		"hero":      map[string]any{"level": level, "title": title, "text": strings.Join(problems, " · ")},
 		"routes":    map[string]any{"profiles": profs, "clients": clients, "exits": exits, "presets": pres, "applyInfo": info, "canRollback": canRb, "pending": pendingRouteView(), "events": routeHistory()},
 		"decisions": snapshotLog(&decRing)}
+	out["olcInstall"] = olcInstallStatus()
 	out["routeResources"] = resources
 	out["dpiHistory"] = flowsMod.diagnosticDPI()
 	out["flowLifecycle"] = flowsMod.lifecycle()

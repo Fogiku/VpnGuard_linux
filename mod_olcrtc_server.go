@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	_ "embed"
@@ -8,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -26,6 +29,28 @@ var olcInstaller string
 
 var olcInstallMu sync.Mutex
 
+var olcProgress struct {
+	sync.Mutex
+	stage, result string
+	start, end    time.Time
+}
+
+func olcInstallStatus() map[string]any {
+	olcProgress.Lock()
+	defer olcProgress.Unlock()
+	if olcProgress.start.IsZero() {
+		return nil
+	}
+	end := olcProgress.end
+	if end.IsZero() {
+		end = time.Now()
+	}
+	return map[string]any{
+		"stage": olcProgress.stage, "result": olcProgress.result,
+		"running": olcProgress.end.IsZero(), "seconds": int(end.Sub(olcProgress.start).Seconds()),
+	}
+}
+
 func ensureOlcInstalled() error {
 	olcInstallMu.Lock()
 	defer olcInstallMu.Unlock()
@@ -35,12 +60,50 @@ func ensureOlcInstalled() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "sh", "-eu")
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Stdin = strings.NewReader(olcInstaller)
-	out, err := cmd.CombinedOutput()
+	olcProgress.Lock()
+	olcProgress.start, olcProgress.end = time.Now(), time.Time{}
+	olcProgress.stage, olcProgress.result = "Подготовка установки", ""
+	olcProgress.Unlock()
+
+	var output bytes.Buffer
+	reader, writer := io.Pipe()
+	cmd.Stdout, cmd.Stderr = writer, &output
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		scanner := bufio.NewScanner(reader)
+		for scanner.Scan() {
+			olcProgress.Lock()
+			olcProgress.stage = scanner.Text()
+			olcProgress.Unlock()
+		}
+		reader.Close()
+	}()
+	err := cmd.Run()
+	writer.Close()
+	<-done
+
+	olcProgress.Lock()
+	stage := olcProgress.stage
+	olcProgress.end = time.Now()
+	olcProgress.result = "olcRTC установлен"
 	if err != nil {
-		return fmt.Errorf("установка olcRTC: %w: %s", err, strings.TrimSpace(string(out)))
+		if ctx.Err() == context.DeadlineExceeded {
+			err = errors.New("превышен предел установки в 30 минут")
+		}
+		err = fmt.Errorf("установка olcRTC, этап «%s»: %w", stage, err)
+		if detail := strings.TrimSpace(output.String()); detail != "" {
+			err = fmt.Errorf("%w: %s", err, detail)
+		}
+		olcProgress.result = err.Error()
 	}
-	return nil
+	olcProgress.Unlock()
+	if err != nil {
+		Log("ERROR", "%v", err)
+	}
+	return err
 }
 
 const olcTemplate = "/etc/systemd/system/vpnguard-olcrtc-peer@.service"

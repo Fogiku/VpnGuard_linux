@@ -92,12 +92,13 @@ async function runAction(modId, a, row) {
   } else if (a.confirm && !(await ask(a.confirm, a.title))) return;
   if (modId === 'olcrtc-server' && (a.id === 'install' || a.id === 'start') &&
       M(modId).actions.some(action => action.id === 'install')) {
-    modal('<p>Шлюз устанавливает olcRTC. Первая сборка может занять несколько минут.</p>');
-    const progress = $('mbody').firstElementChild;
-    try {
-      await post('do', { module: modId, action: a.id, args: args });
-    } finally {
-      if ($('mbody').firstElementChild === progress) closeModal();
+    modal('<div class="sec">Установка olcRTC</div><div id="olc-install-modal" role="status">Подготовка установки…</div><button id="olc-install-close" type="button">Закрыть</button>');
+    const progress = $('olc-install-modal');
+    $('olc-install-close').onclick = closeModal;
+    const result = await post('do', { module: modId, action: a.id, args: args });
+    if (result === null) await refresh(true);
+    if (progress === $('olc-install-modal') && !S?.olcInstall) {
+      progress.textContent = result === null ? $('toast').textContent : 'olcRTC установлен';
     }
     return;
   }
@@ -107,6 +108,8 @@ const M = id => S.modules.find(m => m.id === id);
 function busyUI() { const a = document.activeElement, selection = window.getSelection(); return MODAL || DRAG || WIRE || (selection && !selection.isCollapsed) || (a && $('page').contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)); }
 async function refresh(force) {
   try { S = await get('state'); } catch (e) { $('agent').textContent = 'нет связи с агентом'; $('adot').className = 'dot l2'; return; }
+  const olcModal = $('olc-install-modal');
+  if (MODAL && olcModal && S.olcInstall) olcModal.innerHTML = olcInstallHtml(S.olcInstall);
   const pending = S.routes.pending;
   if (pending && pending.status === 'awaiting_confirmation' && pending.requester === S.clientIP) {
     try {
@@ -226,15 +229,23 @@ function zapretTrafficHtml() {
     <tr><td>К очереди nfqws2 · UDP</td><td>${total(traffic?.udp)}</td></tr></table>
     <p class="sub">Счётчики с последнего применения правил. Очередь учитывает совпадения первых пакетов соединения. Подтверждение обработки процессом и входящий трафик в эти значения не входят.</p></div>`;
 }
+function olcInstallHtml(status) {
+  const time = Math.floor(status.seconds / 60) + ' мин ' + status.seconds % 60 + ' сек';
+  return `<p>${esc(status.stage)} · ${time}</p>` + (status.running
+    ? '<p class="sub">Предел установки — 30 минут.</p>'
+    : `<p style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(status.result)}</p>`);
+}
 function pModule() {
   const m = M(PAGE), st = m.status, tb = (m.tables || []).map((t, ti) => [t, ti]);
   const top = tb.filter(x => x[0].top).map(x => blockHtml(x[0], x[1])).join(''), rest = tb.filter(x => !x[0].top).map(x => blockHtml(x[0], x[1])).join('');
   const traffic = m.id === 'zapret' ? zapretTrafficHtml() : '';
+  const install = m.id === 'olcrtc-server' && S.olcInstall
+    ? `<div class="card"><div class="sec">Установка olcRTC</div>${olcInstallHtml(S.olcInstall)}</div>` : '';
   const html = hero(st.level, st.busy ? 'Выполняется: ' + st.busy : st.state, st.why) +
-    (st.kv.length ? `<div class="card"><table class="kv">${st.kv.map(k => `<tr><td>${esc(k[0])}</td><td>${esc(k[1])}</td></tr>`).join('')}</table></div>` : '') + traffic + top +
+    (st.kv.length ? `<div class="card"><table class="kv">${st.kv.map(k => `<tr><td>${esc(k[0])}</td><td>${esc(k[1])}</td></tr>`).join('')}</table></div>` : '') + traffic + install + top +
     (m.actions && m.actions.length ? `<div class="sec">Управление</div><div class="row">${m.actions.map((a, i) => `<button type="button" class="${a.danger ? 'bad' : ''}" data-ma="${i}">${esc(a.title)}</button>`).join('')}</div>` : '') +
     (m.fieldsTop ? fieldsHtml(m) + rest : rest + fieldsHtml(m));
-  if (!setHtml(html, PAGE + JSON.stringify([st, m.tables, m.fields, m.actions, probeProblemsOnly, traffic, traffic && S.networkTelemetry?.counters?.at]))) return;
+  if (!setHtml(html, PAGE + JSON.stringify([st, m.tables, m.fields, m.actions, probeProblemsOnly, install, traffic, traffic && S.networkTelemetry?.counters?.at]))) return;
   bindModule(m);
   if (traffic) {
     const cv = document.querySelector('[data-ch="zapret.out_bps"]');

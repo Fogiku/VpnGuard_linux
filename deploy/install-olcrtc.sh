@@ -1,5 +1,8 @@
 #!/bin/sh
 set -eu
+exec 3>&1 1>&2
+phase() { printf '%s\n' "$1" >&3; }
+phase "Скачивание исходников olcRTC"
 revision=f3ad8fb7c0d0fa981423f83269526fa94077c23d
 work=$(mktemp -d)
 stage=
@@ -16,12 +19,16 @@ case "$(uname -m)" in
     *) echo "Неподдерживаемая архитектура: $(uname -m)" >&2; exit 1 ;;
 esac
 archive="go1.26.3.linux-$arch.tar.gz"
+phase "Скачивание Go"
 curl -fsSL "https://go.dev/dl/$archive" -o "$archive"
+phase "Проверка и распаковка Go"
 printf '%s  %s\n' "$digest" "$archive" | sha256sum -c -
 tar -xzf "$archive"
 cd source
 export GOPROXY="${GOPROXY:-https://proxy.golang.org|direct}"
+phase "Загрузка зависимостей и сборка olcRTC"
 CGO_ENABLED=0 GOTOOLCHAIN=local "$work/go/bin/go" build -mod=readonly -trimpath -o "$work/olcrtc" ./cmd/olcrtc
+phase "Установка бинарника"
 install -d /usr/local/bin
 stage=$(mktemp /usr/local/bin/.olcrtc-XXXXXX)
 install -m 0755 "$work/olcrtc" "$stage"
