@@ -59,7 +59,13 @@ func (m *tunnelExit) Tick() {
 		m.setSt(2, false, "Нет трафика", "Проверка через туннель не прошла")
 		return
 	}
-	m.setSt(0, true, "Подключено", "")
+	var counters [][2]string
+	if m.olcRTC {
+		rx, _ := S.ReadFile("/sys/class/net/" + m.iface + "/statistics/rx_bytes")
+		tx, _ := S.ReadFile("/sys/class/net/" + m.iface + "/statistics/tx_bytes")
+		counters = append(counters, [2]string{"Принято через TUN", olcBytes(rx)}, [2]string{"Передано через TUN", olcBytes(tx)})
+	}
+	m.setSt(0, true, "Подключено", "", counters...)
 }
 
 func configuredTunnelExits(wireGuard, olcRTC string) ([]*tunnelExit, error) {

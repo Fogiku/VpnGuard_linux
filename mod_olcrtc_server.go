@@ -322,10 +322,11 @@ func (m *olcServer) refresh() {
 		if !ok || !olcPeerID.MatchString(name) {
 			continue
 		}
-		state := "Остановлен"
+		state, client, rx, tx := "Остановлен", "—", "—", "—"
 		switch states[olcUnit(name)] {
 		case "active":
 			state = "Служба запущена"
+			client, rx, tx = olcServiceStatus(olcUnit(name))
 			running++
 		case "activating", "deactivating", "reloading":
 			state = "Переходное состояние"
@@ -336,7 +337,7 @@ func (m *olcServer) refresh() {
 		if listErr {
 			state = "Состояние неизвестно"
 		}
-		m.rows = append(m.rows, []string{name, state})
+		m.rows = append(m.rows, []string{name, state, client, rx, tx})
 	}
 	switch {
 	case !olcInstalled():
@@ -365,7 +366,7 @@ func (*olcServer) Actions() []Action {
 func (m *olcServer) Tables() []Table {
 	m.tk.Lock()
 	defer m.tk.Unlock()
-	return []Table{{Title: "Клиенты olcRTC", Cols: []string{"Устройство", "Служба на шлюзе"}, Rows: m.rows, Empty: "Добавьте устройство для выдачи конфигурации.", Note: "Для каждого устройства используются отдельная комната выбранного сервиса и ключ. Запустите службу и передайте конфигурацию на устройство.", Actions: []Action{{ID: "download", Title: "Скачать конфигурацию"}, {ID: "start", Title: "Запустить"}, {ID: "stop", Title: "Остановить"}, {ID: "remove", Title: "Удалить", Danger: true, Confirm: "Остановить службу и отозвать профиль этого устройства?"}}}}
+	return []Table{{Title: "Клиенты olcRTC", Cols: []string{"Устройство", "Служба на шлюзе", "Клиент", "Принято", "Передано"}, Rows: m.rows, Empty: "Добавьте устройство для выдачи конфигурации.", Note: "Счётчики показывают весь IP-трафик службы с последнего запуска, включая служебный обмен. Прочерк означает, что счётчик недоступен.", Actions: []Action{{ID: "download", Title: "Скачать конфигурацию"}, {ID: "start", Title: "Запустить"}, {ID: "stop", Title: "Остановить"}, {ID: "remove", Title: "Удалить", Danger: true, Confirm: "Остановить службу и отозвать профиль этого устройства?"}}}}
 }
 
 func olcSystemctl(args ...string) error {

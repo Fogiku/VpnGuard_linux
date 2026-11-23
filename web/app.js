@@ -265,13 +265,19 @@ function pModule() {
   const m = M(PAGE), st = m.status, tb = (m.tables || []).map((t, ti) => [t, ti]);
   const top = tb.filter(x => x[0].top).map(x => blockHtml(x[0], x[1])).join(''), rest = tb.filter(x => !x[0].top).map(x => blockHtml(x[0], x[1])).join('');
   const traffic = m.id === 'zapret' ? zapretTrafficHtml() : '';
+  const olcExits = m.id === 'olcrtc-server' ? S.modules.filter(exit => exit.id.startsWith('olcrtc-out-')) : [];
+  const olcRoutes = m.id === 'olcrtc-server' ? `<div class="card"><div class="sec">Выходы olcRTC для маршрутов</div>
+    ${olcExits.length ? olcExits.map(exit => `<p><b>${esc(exit.name)}</b> · ${esc(exit.status.state)}
+      ${exit.status.kv.map(([label, value]) => `<br>${esc(label)}: ${esc(value)}`).join('')}</p>`).join('')
+      : '<p>Исходящие TUN-выходы не настроены. Для маршрутов укажите интерфейс работающего адаптера tun2socks в «Диагностика → Интернет → Выходы olcRTC (TCP)».</p>'}
+    <a href="#${olcExits.length ? 'routes' : 'diag'}">${olcExits.length ? 'Открыть маршруты' : 'Открыть диагностику и настройки Интернета'}</a></div>` : '';
   const install = m.id === 'olcrtc-server' && S.olcInstall
     ? `<div class="card"><div class="sec">Установка olcRTC</div>${olcInstallHtml(S.olcInstall)}</div>` : '';
   const html = hero(st.level, st.busy ? 'Выполняется: ' + st.busy : st.state, st.why) +
     (st.kv.length ? `<div class="card"><table class="kv">${st.kv.map(k => `<tr><td>${esc(k[0])}</td><td>${esc(k[1])}</td></tr>`).join('')}</table></div>` : '') + traffic + install + top +
     (m.actions && m.actions.length ? `<div class="sec">Управление</div><div class="row">${m.actions.map((a, i) => `<button type="button" class="${a.danger ? 'bad' : ''}" data-ma="${i}">${esc(a.title)}</button>`).join('')}</div>` : '') +
-    (m.fieldsTop ? fieldsHtml(m) + rest : rest + fieldsHtml(m));
-  if (!setHtml(html, PAGE + JSON.stringify([st, m.tables, m.fields, m.actions, probeProblemsOnly, install, traffic, traffic && S.networkTelemetry?.counters?.at]))) return;
+    (m.fieldsTop ? fieldsHtml(m) + rest : rest + fieldsHtml(m)) + olcRoutes;
+  if (!setHtml(html, PAGE + JSON.stringify([st, m.tables, m.fields, m.actions, probeProblemsOnly, install, olcRoutes, traffic, traffic && S.networkTelemetry?.counters?.at]))) return;
   bindModule(m);
   if (traffic) {
     const cv = document.querySelector('[data-ch="zapret.out_bps"]');

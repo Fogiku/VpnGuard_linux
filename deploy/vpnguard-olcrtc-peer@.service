@@ -5,6 +5,7 @@ Wants=network-online.target
 
 [Service]
 DynamicUser=yes
+IPAccounting=yes
 LoadCredential=server.yaml:/etc/vpnguard/olcrtc-peers/%i.yaml
 ExecStart=/usr/local/bin/olcrtc %d/server.yaml
 Restart=on-failure
