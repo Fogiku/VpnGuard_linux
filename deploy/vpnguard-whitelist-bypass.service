@@ -1,0 +1,18 @@
+[Unit]
+Description=VpnGuard Whitelist Bypass Telemost Creator
+After=network-online.target
+Wants=network-online.target
+[Service]
+DynamicUser=yes
+LoadCredential=yandex.json:/etc/vpnguard/whitelist-bypass/cookies-yandex.json
+RuntimeDirectory=vpnguard-whitelist-bypass
+RuntimeDirectoryMode=0700
+UMask=0077
+ExecStart=/usr/local/libexec/vpnguard-telemost-creator -cookies %d/yandex.json -write-file /run/vpnguard-whitelist-bypass/room
+Restart=on-failure
+RestartSec=10
+ProtectSystem=strict
+PrivateTmp=yes
+NoNewPrivileges=yes
+[Install]
+WantedBy=multi-user.target

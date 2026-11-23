@@ -386,6 +386,9 @@ func reportChecks() string {
 	}
 	var st strings.Builder
 	for _, m := range Mods {
+		if !olcVisible(m) {
+			continue
+		}
 		s := m.Status()
 		fmt.Fprintf(&st, "%-22s уровень %2d · %s", m.Name(), s.Level, s.State)
 		if s.Why != "" {
@@ -508,6 +511,9 @@ func reportLogs(days, minutes, lines int) string {
 func remoteCmds() []string {
 	out := []string{"diagrun"}
 	for _, m := range Mods {
+		if !olcVisible(m) {
+			continue
+		}
 		if m.ID() == "remote" {
 			continue
 		}

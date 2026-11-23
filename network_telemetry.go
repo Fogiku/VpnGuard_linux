@@ -129,6 +129,9 @@ func parseQualityPing(output string, code, expected int) qualityResult {
 func currentQualityTargets() []qualityTarget {
 	targets := []qualityTarget{{"direct", "Провайдер (WAN)", wanIface()}}
 	for _, m := range Mods {
+		if !olcVisible(m) {
+			continue
+		}
 		if e := m.Exit(); e != nil && !e.TCPOnly && (e.Table > 0 || e.AutoRoutes) && e.Iface != "" && m.Status().Up {
 			targets = append(targets, qualityTarget{m.ID(), m.Name(), e.Iface})
 		}

@@ -37,6 +37,9 @@ func buildState() map[string]any {
 	var mods, exits []map[string]any
 	level, problems := 0, []string{}
 	for _, m := range Mods {
+		if !olcVisible(m) {
+			continue
+		}
 		st := m.Status()
 		if st.KV == nil {
 			st.KV = [][2]string{}
@@ -87,7 +90,9 @@ func buildState() map[string]any {
 		"hero":      map[string]any{"level": level, "title": title, "text": strings.Join(problems, " · ")},
 		"routes":    map[string]any{"profiles": profs, "clients": clients, "exits": exits, "presets": pres, "applyInfo": info, "canRollback": canRb, "pending": pendingRouteView(), "events": routeHistory()},
 		"decisions": snapshotLog(&decRing)}
-	out["olcInstall"] = olcInstallStatus()
+	if olcVisible(inboundOlc) {
+		out["olcInstall"] = olcInstallStatus()
+	}
 	out["routeResources"] = resources
 	out["dpiHistory"] = flowsMod.diagnosticDPI()
 	out["flowLifecycle"] = flowsMod.lifecycle()
@@ -262,9 +267,16 @@ func startWeb(listen string) error {
 		return "Связь после изменения маршрутов подтверждена", confirmRouteChangeFrom(str(body, "id"), str(body, "_remoteIP"))
 	})
 	api("olcrtc-client-config", true, func(b map[string]json.RawMessage) (any, error) {
+		if !olcVisible(inboundOlc) {
+			return nil, errNoModule
+		}
 		return inboundOlc.clientConfig(str(b, "name"))
 	})
 	api("do", true, func(b map[string]json.RawMessage) (any, error) {
+		if str(b, "module") == "olcrtc-server" {
+			olcControl.RLock()
+			defer olcControl.RUnlock()
+		}
 		m := mod(str(b, "module"))
 		if m == nil {
 			return nil, errNoModule
@@ -279,7 +291,7 @@ func startWeb(listen string) error {
 		args := map[string]string{}
 		_ = json.Unmarshal(b["args"], &args)
 		msg, err := m.Do(str(b, "action"), args)
-		if err == nil && !(m.ID() == "dns" && str(b, "action") == "compare-address") {
+		if err == nil && !(m.ID() == "whitelist-bypass" && str(b, "action") == "room") && !(m.ID() == "dns" && str(b, "action") == "compare-address") {
 			Log("INFO", "веб: %s → %s: %s", m.Name(), str(b, "action"), msg)
 		}
 		return msg, err
@@ -337,6 +349,9 @@ func startWeb(listen string) error {
 		_ = json.Unmarshal(b["on"], &on)
 		sim.SetFault(str(b, "id"), on)
 		for _, m := range Mods {
+			if !olcVisible(m) {
+				continue
+			}
 			go m.Tick()
 		}
 		return "Имитация: состояние изменено", nil

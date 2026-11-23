@@ -161,6 +161,9 @@ var Mods []Module
 func Register(m Module) { Mods = append(Mods, m) }
 func mod(id string) Module {
 	for _, m := range Mods {
+		if !olcVisible(m) {
+			continue
+		}
 		if m.ID() == id {
 			return m
 		}
@@ -184,7 +187,9 @@ func startModules() {
 							Log("ERROR", "модуль %s: сбой в проверке: %v", m.ID(), r)
 						}
 					}()
-					m.Tick()
+					if olcVisible(m) {
+						m.Tick()
+					}
 					if first {
 						first = false
 						initial.Done()

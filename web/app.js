@@ -39,6 +39,16 @@ function fieldHtml(f, id) {
 }
 // действие модуля: подтверждение и/или форма с аргументами, затем запрос
 async function runAction(modId, a, row) {
+  if (modId === 'whitelist-bypass' && a.id === 'room') {
+    const room = await post('do', {module: modId, action: 'room'}, true);
+    if (typeof room === 'string') {
+      modal('<label>Приглашение Телемоста<input id="wb-room" readonly></label><button id="wb-close">Закрыть</button>');
+      $('wb-room').value = room;
+      $('wb-room').select();
+      $('wb-close').onclick = closeModal;
+    }
+    return;
+  }
   if (modId === 'olcrtc-server' && a.id === 'download') {
     const config = await post('olcrtc-client-config', {name: row}, true);
     if (typeof config === 'string') {

@@ -28,6 +28,9 @@ var (
 func runChecks() []CheckRes {
 	var out []CheckRes
 	for _, m := range Mods {
+		if !olcVisible(m) {
+			continue
+		}
 		if m.Status().Level == -1 {
 			continue
 		}
@@ -50,6 +53,9 @@ func runChecks() []CheckRes {
 }
 func fixCheck(id string) (string, error) {
 	for _, m := range Mods {
+		if !olcVisible(m) {
+			continue
+		}
 		for _, c := range m.Checks() {
 			if c.ID == id {
 				if c.Fix == nil {

@@ -132,6 +132,9 @@ func resolveRouteRegistry(allocate bool) (reg routeRegistry, err error) {
 	active := map[string]bool{}
 	var pending []string
 	for _, m := range Mods {
+		if !olcVisible(m) {
+			continue
+		}
 		id := m.ID()
 		if id == "" || seen[id] {
 			return reg, fmt.Errorf("пустой, повторный или зарезервированный ID модуля %q", id)

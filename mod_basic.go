@@ -61,16 +61,33 @@ func (m *inet) Tick() {
 	m.setSt(2, false, "Нет связи", "провайдер не отвечает: это не сбой VPN", [2]string{"Интерфейс", w})
 }
 func (m *inet) Fields() []Field {
-	return []Field{fb("net.wan", "Интерфейс провайдера", "text", "", "Пусто — определять автоматически"),
+	fields := []Field{fb("modules.olc", "Включить olcRTC", "bool", "false", "Показывает модуль и сохранённые профили. Службы устройств запускаются отдельно."), fb("net.wan", "Интерфейс провайдера", "text", "", "Пусто — определять автоматически"),
 		fb("vpn.extraWireGuard", "Дополнительные выходы WireGuard", "text", "", "Имена настроенных исходящих интерфейсов через запятую. Список вступает в силу после перезапуска VpnGuard."),
-		fb("vpn.olcRTC", "Выходы olcRTC (TCP)", "text", "", "Имена TUN-интерфейсов tun2socks через запятую. Настройте клиент olcRTC и адаптер, сохраните список и перезапустите VpnGuard."),
+
 		fb("vpn.probeUrl", "Адрес для проверки туннелей", "text", "https://1.1.1.1", ""),
 		fb("net.qualityEnabled", "Измерять качество соединений", "bool", "true", "Пять ICMP-пакетов примерно раз в 30 секунд через WAN и активные VPN. Измерения не переключают маршруты."),
 		fb("net.qualityIP", "IPv4-адрес для измерений", "text", "1.1.1.1", "Один контрольный адрес для RTT, потерь ICMP и изменения RTT. Отсутствие ping не означает недоступность приложений."),
 		fb("net.localNetworks", "Локальные сети без VPN", "textarea", "", "IPv4-подсети через запятую. Доступ к этим сетям, SSH и вебу шлюза не отправляется в VPN."),
 		fb("net.pinFlows", "Сохранять маршрут соединений", "bool", "false", "Новые правила действуют на новые соединения. При отказе выхода существующие потоки блокируются до его восстановления. Выключение разрешает смену пути действующих соединений.")}
+	if cfgBool("modules.olc", false) {
+		fields = append(fields, fb("vpn.olcRTC", "Выходы olcRTC (TCP)", "text", "", "Имена TUN-интерфейсов tun2socks через запятую. Настройте клиент olcRTC и адаптер, сохраните список и перезапустите VpnGuard."))
+	}
+	return fields
 }
 func (m *inet) Set(key, value string) error {
+	if key == "modules.olc" {
+		olcControl.Lock()
+		defer olcControl.Unlock()
+		if value != "true" && value != "false" {
+			return fmt.Errorf("неверное значение")
+		}
+		if value == "false" && !Sim {
+			if err := stopOlcServices(); err != nil {
+				return err
+			}
+		}
+		return setCfg(key, value)
+	}
 	if key == "vpn.extraWireGuard" || key == "vpn.olcRTC" {
 		m.tk.Lock()
 		defer m.tk.Unlock()

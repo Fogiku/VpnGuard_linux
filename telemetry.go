@@ -289,6 +289,9 @@ func initTelemetry() {
 func collectHistory() {
 	values := map[string]float64{}
 	for _, m := range Mods {
+		if !olcVisible(m) {
+			continue
+		}
 		values[m.ID()+".level"] = float64(m.Status().Level)
 		for k, v := range m.Metrics() {
 			values[m.ID()+"."+k] = v

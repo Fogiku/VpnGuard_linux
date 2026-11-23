@@ -353,6 +353,9 @@ func compileRoutes(reg routeRegistry) compiledRoutes {
 	fmt.Fprintf(&b, "    meta mark 0x%x counter drop\n", mod("block").Exit().Mark)
 	// A missing private-table route can fall through to main before the next health check.
 	for _, m := range Mods {
+		if !olcVisible(m) {
+			continue
+		}
 		r := byOwner[m.ID()]
 		if r.Table == "" || r.Table == "main" {
 			continue
@@ -370,6 +373,9 @@ func compileRoutes(reg routeRegistry) compiledRoutes {
 	if cfgBool("net.pinFlows", false) {
 		// Старый поток при отказе выхода не должен провалиться в main и обойти запрет.
 		for _, m := range Mods {
+			if !olcVisible(m) {
+				continue
+			}
 			if e := m.Exit(); e != nil && !e.Block && !m.Status().Up {
 				fmt.Fprintf(&b, "    meta mark 0x%x counter drop comment \"pinned exit unavailable\"\n", byOwner[m.ID()].Mark)
 			}
@@ -387,6 +393,9 @@ func compileRoutes(reg routeRegistry) compiledRoutes {
 	}
 	fmt.Fprintf(&b, "  chain nat {\n    type nat hook postrouting priority srcnat; policy accept;\n    ip saddr %s.0/24 oifname != \"%s\" masquerade\n  }\n}\n", sub, wg)
 	for _, m := range Mods {
+		if !olcVisible(m) {
+			continue
+		}
 		r := byOwner[m.ID()]
 		e := m.Exit()
 		if e == nil || e.Iface == "" || e.Block {

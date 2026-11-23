@@ -121,6 +121,11 @@ func main() {
 	}
 	routesStarting.Store(true)
 	routeSimulationRunning = Sim
+	if !Sim && !cfgBool("modules.olc", false) {
+		if err := stopOlcServices(); err != nil {
+			Log("ERROR", "Остановка отключённого модуля: %v", err)
+		}
+	}
 	routeAgentRunning = true
 	startRoutes()
 	startModules()
