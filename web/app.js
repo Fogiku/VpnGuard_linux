@@ -274,7 +274,7 @@ function olcInstallHtml(status) {
 function pModule() {
   const m = M(PAGE), st = m.status, tb = (m.tables || []).map((t, ti) => [t, ti]);
   const top = tb.filter(x => x[0].top).map(x => blockHtml(x[0], x[1])).join(''), rest = tb.filter(x => !x[0].top).map(x => blockHtml(x[0], x[1])).join('');
-  const traffic = m.id === 'zapret' ? zapretTrafficHtml() : '';
+  const traffic = m.id === 'zapret' ? zapretTrafficHtml() : m.id === 'whitelist-bypass' ? `<div class="card"><div class="sec">Клиент Android</div><a href="https://github.com/kulikov0/whitelist-bypass/releases/download/v0.5.2/whitelist-bypass.apk">Скачать APK 0.5.2</a><p>Получите приглашение на этой странице, вставьте его в приложение и подтвердите системный запрос VPN на телефоне.</p></div>` : '';
   const olcExits = m.id === 'olcrtc-server' ? S.modules.filter(exit => exit.id.startsWith('olcrtc-out-')) : [];
   const olcRoutes = m.id === 'olcrtc-server' ? `<div class="card"><div class="sec">Выходы olcRTC для маршрутов</div>
     ${olcExits.length ? olcExits.map(exit => `<p><b>${esc(exit.name)}</b> · ${esc(exit.status.state)}

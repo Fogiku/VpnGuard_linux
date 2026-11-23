@@ -3,6 +3,7 @@ Description=VpnGuard Whitelist Bypass Telemost Creator
 After=network-online.target
 Wants=network-online.target
 [Service]
+IPAccounting=yes
 DynamicUser=yes
 LoadCredential=yandex.json:/etc/vpnguard/whitelist-bypass/cookies-yandex.json
 RuntimeDirectory=vpnguard-whitelist-bypass

@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -12,6 +14,8 @@ var olcControl sync.RWMutex
 const wbUnit = "vpnguard-whitelist-bypass.service"
 const wbRoom = "/run/vpnguard-whitelist-bypass/room"
 
+var wbParticipants = regexp.MustCompile(`\btotal=([0-9]+)\s*$`)
+
 type wbServer struct{ base }
 
 func init()                     { Register(&wbServer{}) }
@@ -20,20 +24,50 @@ func (*wbServer) Name() string  { return "Whitelist Bypass · Телемост" 
 func (*wbServer) Color() string { return "#408985" }
 func (*wbServer) Order() int    { return 6 }
 func (b *wbServer) Tick() {
-	active := false
-	state := "Служба остановлена"
-	if !Sim {
-		if _, code := run("systemctl", "is-active", "--quiet", wbUnit); code == 0 {
-			active = true
-			state = "Creator запущен"
-			if _, err := os.Stat(wbRoom); err == nil {
-				state = "Комната создана"
+	if Sim {
+		b.setSt(0, false, "Симуляция", "")
+		return
+	}
+	out, code := run("systemctl", "show", wbUnit, "-p", "ActiveState", "-p", "InvocationID", "-p", "IPIngressBytes", "-p", "IPEgressBytes", "-p", "NRestarts")
+	props := map[string]string{}
+	for _, line := range strings.Split(out, "\n") {
+		k, v, ok := strings.Cut(line, "=")
+		if ok {
+			props[k] = strings.TrimSpace(v)
+		}
+	}
+	if code != 0 || props["ActiveState"] == "" {
+		b.setSt(1, false, "Состояние службы недоступно", "")
+		return
+	}
+	active := props["ActiveState"] == "active"
+	state := props["ActiveState"]
+	var kv [][2]string
+	if active {
+		state = "Creator запущен"
+		if _, err := os.Stat(wbRoom); err == nil {
+			state = "Комната создана"
+		}
+		participants := "нет данных"
+		if id := props["InvocationID"]; len(id) == 32 {
+			log, rc := run("journalctl", "--quiet", "--no-pager", "-o", "cat", "-n", "1", "--grep", "Participant (joined|left):.*total=[0-9]+", "_SYSTEMD_INVOCATION_ID="+id)
+			if match := wbParticipants.FindStringSubmatch(strings.TrimSpace(log)); rc == 0 && len(match) == 2 {
+				participants = match[1]
 			}
 		}
-	} else {
-		state = "Симуляция"
+		kv = append(kv, [2]string{"Участники по последнему событию", participants})
 	}
-	b.setSt(0, active, state, "Подключение клиента проверяется передачей данных через комнату.")
+	for _, pair := range [][2]string{{"Принято службой", "IPIngressBytes"}, {"Передано службой", "IPEgressBytes"}} {
+		kv = append(kv, [2]string{pair[0], olcBytes(props[pair[1]])})
+	}
+	if _, err := strconv.ParseUint(props["NRestarts"], 10, 64); err == nil {
+		kv = append(kv, [2]string{"Автоперезапуски", props["NRestarts"]})
+	}
+	level := 0
+	if state == "failed" {
+		level = 2
+	}
+	b.setSt(level, active, state, "Счётчики systemd включают медиатрафик и служебный обмен. Присутствие участника само по себе не подтверждает передачу через VPN.", kv...)
 
 }
 func (*wbServer) Actions() []Action {
