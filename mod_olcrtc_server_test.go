@@ -61,7 +61,7 @@ func TestOlcRoomForEachDevice(t *testing.T) {
 	setup(t)
 	rooms := map[string]bool{}
 	for _, name := range []string{"phone", "tablet"} {
-		if err := createOlcPeer(name, "https://meet.example.org/"); err != nil {
+		if err := createOlcPeer(name, "jitsi", "https://meet.example.org/"); err != nil {
 			t.Fatal(err)
 		}
 		c, err := readOlcPeer(name)
@@ -69,5 +69,35 @@ func TestOlcRoomForEachDevice(t *testing.T) {
 			t.Fatal("expected a distinct room on the selected server", err)
 		}
 		rooms[c.Room.ID] = true
+	}
+}
+
+func TestOlcProviderProfiles(t *testing.T) {
+	setup(t)
+	for _, tc := range []struct{ provider, room string }{
+		{"telemost", "https://telemost.yandex.ru/j/123456"},
+		{"wbstream", "123456"},
+	} {
+		_, err := inboundOlc.Do("add", map[string]string{"name": tc.provider, "provider": tc.provider, "room": tc.room})
+		if err != nil {
+			t.Fatal(err)
+		}
+		server, err := readOlcPeer(tc.provider)
+		if err != nil {
+			t.Fatal(err)
+		}
+		profile, err := inboundOlc.clientConfig(tc.provider)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var client olcConfig
+		if err := json.Unmarshal([]byte(profile), &client); err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range []olcConfig{server, client} {
+			if c.Auth.Provider != tc.provider || c.Room.ID != "123456" || c.Net.Transport != "vp8channel" {
+				t.Fatal("wrong provider configuration")
+			}
+		}
 	}
 }
