@@ -114,21 +114,45 @@ func readOlcPeer(name string) (olcConfig, error) {
 	return c, nil
 }
 
-func createOlcPeer(name, room string) error {
-	if !olcPeerID.MatchString(name) {
-		return errors.New("имя устройства: 1–32 символа A–Z, a–z, 0–9, дефис и подчёркивание")
+func olcRoomID(provider, room string) (string, error) {
+	switch provider {
+	case "telemost", "wbstream":
+		if provider == "telemost" {
+			room = strings.TrimPrefix(room, "https://telemost.yandex.ru/j/")
+		}
+		if len(room) > 512 || room == "any" || !olcRoomPath.MatchString("/"+room) {
+			return "", errors.New("введите ID созданной встречи выбранного сервиса")
+		}
+		return room, nil
+	case "jitsi":
+	default:
+		return "", errors.New("неизвестный сервис olcRTC")
 	}
 	u, err := url.Parse(room)
 	if err == nil && (u.Path == "" || u.Path == "/") {
 		var suffix [16]byte
 		if _, err := rand.Read(suffix[:]); err != nil {
-			return err
+			return "", err
 		}
 		u.Path = "/vpnguard-" + hex.EncodeToString(suffix[:])
 		room = u.String()
 	}
 	if err != nil || len(room) > 512 || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || !olcRoomPath.MatchString(u.EscapedPath()) {
-		return errors.New("введите HTTPS-ссылку на отдельную комнату Jitsi")
+		return "", errors.New("введите HTTPS-ссылку на отдельную комнату Jitsi")
+	}
+	return room, nil
+}
+
+func createOlcPeer(name, provider, room string) error {
+	if !olcPeerID.MatchString(name) {
+		return errors.New("имя устройства: 1–32 символа A–Z, a–z, 0–9, дефис и подчёркивание")
+	}
+	if provider == "" {
+		provider = "jitsi"
+	}
+	room, err := olcRoomID(provider, room)
+	if err != nil {
+		return err
 	}
 	if err = os.MkdirAll(olcDir(), 0700); err != nil {
 		return err
@@ -145,7 +169,7 @@ func createOlcPeer(name, room string) error {
 		if err != nil {
 			return err
 		}
-		if strings.EqualFold(c.Room.ID, room) {
+		if c.Auth.Provider == provider && strings.EqualFold(c.Room.ID, room) {
 			return errors.New("эта комната уже назначена устройству")
 		}
 	}
@@ -155,9 +179,12 @@ func createOlcPeer(name, room string) error {
 	}
 	var c olcConfig
 	c.Mode = "srv"
-	c.Auth.Provider = "jitsi"
+	c.Auth.Provider = provider
 	c.Room.ID = room
-	c.Net.Transport = "datachannel"
+	c.Net.Transport = "vp8channel"
+	if provider == "jitsi" {
+		c.Net.Transport = "datachannel"
+	}
 	c.Net.DNS = "1.1.1.1:53"
 	c.Crypto.Key = hex.EncodeToString(key[:])
 	f, err := os.CreateTemp(olcDir(), ".new-*")
@@ -236,7 +263,11 @@ func (m *olcServer) refresh() {
 	}
 }
 func (*olcServer) Actions() []Action {
-	actions := []Action{{ID: "add", Title: "+ Добавить устройство", Args: []Field{{Key: "name", Title: "Имя устройства", Type: "text"}, {Key: "room", Title: "HTTPS-ссылка на сервер или комнату Jitsi", Type: "text", Help: "Укажите адрес доступного устройству сервера Jitsi, чтобы создать отдельное имя комнаты автоматически"}}}}
+	actions := []Action{{ID: "add", Title: "+ Добавить устройство", Args: []Field{
+		{Key: "name", Title: "Имя устройства", Type: "text"},
+		{Key: "provider", Title: "Сервис", Type: "select", Value: "jitsi", Options: []Opt{{"jitsi", "Jitsi"}, {"telemost", "Яндекс Телемост"}, {"wbstream", "WB Stream"}}},
+		{Key: "room", Title: "Комната", Type: "text", Help: "Для Jitsi укажите HTTPS-адрес сервера или комнаты. Для Телемоста введите ID встречи или ссылку telemost.yandex.ru/j/… . Для WB Stream введите ID встречи, созданной на stream.wb.ru."},
+	}}}
 	if !olcInstalled() {
 		actions = append(actions, Action{ID: "install", Title: "Установить olcRTC"})
 	}
@@ -245,7 +276,7 @@ func (*olcServer) Actions() []Action {
 func (m *olcServer) Tables() []Table {
 	m.tk.Lock()
 	defer m.tk.Unlock()
-	return []Table{{Title: "Клиенты olcRTC", Cols: []string{"Устройство", "Служба на шлюзе"}, Rows: m.rows, Empty: "Добавьте устройство для выдачи конфигурации.", Note: "Для каждого устройства используются отдельная комната Jitsi и ключ. Запустите службу и передайте конфигурацию на устройство.", Actions: []Action{{ID: "download", Title: "Скачать конфигурацию"}, {ID: "start", Title: "Запустить"}, {ID: "stop", Title: "Остановить"}, {ID: "remove", Title: "Удалить", Danger: true, Confirm: "Остановить службу и отозвать профиль этого устройства?"}}}}
+	return []Table{{Title: "Клиенты olcRTC", Cols: []string{"Устройство", "Служба на шлюзе"}, Rows: m.rows, Empty: "Добавьте устройство для выдачи конфигурации.", Note: "Для каждого устройства используются отдельная комната выбранного сервиса и ключ. Запустите службу и передайте конфигурацию на устройство.", Actions: []Action{{ID: "download", Title: "Скачать конфигурацию"}, {ID: "start", Title: "Запустить"}, {ID: "stop", Title: "Остановить"}, {ID: "remove", Title: "Удалить", Danger: true, Confirm: "Остановить службу и отозвать профиль этого устройства?"}}}}
 }
 
 func olcSystemctl(args ...string) error {
@@ -275,7 +306,7 @@ func (m *olcServer) Do(id string, a map[string]string) (string, error) {
 	defer m.tk.Unlock()
 	defer m.refresh()
 	if id == "add" {
-		if err := createOlcPeer(strings.TrimSpace(a["name"]), strings.TrimSpace(a["room"])); err != nil {
+		if err := createOlcPeer(strings.TrimSpace(a["name"]), a["provider"], strings.TrimSpace(a["room"])); err != nil {
 			return "", err
 		}
 		return "Профиль создан", nil
