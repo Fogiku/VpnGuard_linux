@@ -1,15 +1,15 @@
 {
-  "version": "1.9.40",
-  "source": "5cc0165735f9746504821d4d1772ea0e779f853c",
+  "version": "1.9.41",
+  "source": "3dc4e1c6a5f8acb545337ee807cf6a98b3316ac5",
   "sha256": {
-    "amd64": "b473037e15c4b3a0b286e01779bb5cd3fedace21531fa7d2bce9df07f53e5715",
-    "arm64": "479a78ff2947f5c55753db4f0bf3046272c391ea12e4c3fa1d047ab8c5c99d98"
+    "amd64": "ff717119e1920f6b67db8fa96e082a6031b330599988f6f84e35d9df45c7910b",
+    "arm64": "4c0bcebd21195e1094a970e1aa50924b176157e5bcc47d4c5b4c2f71f48dd4bd"
   },
   "helpers": {
     "guarded_update.py": "6f318ca0f14789d5efcbf6a85b9712c55c240423ba4d5cf2cc760f985ccf43f9",
     "route_guard.py": "bda39fa92512ae004fe671178e02ecd014b64e9edc2b39b1824ecff05550afcf"
   },
   "changes": [
-    "Страница olcRTC-Server показывает текущий этап установки, прошедшее время и результат. Ошибки с указанием этапа и сообщением установщика доступны в веб-журнале."
+    "Установка olcRTC из веб-панели использует временные каталоги кэша Go и работает, когда служба шлюза запущена без домашнего каталога и GOPATH."
   ]
 }
