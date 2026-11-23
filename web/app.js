@@ -39,6 +39,17 @@ function fieldHtml(f, id) {
 }
 // действие модуля: подтверждение и/или форма с аргументами, затем запрос
 async function runAction(modId, a, row) {
+  if (modId === 'olcrtc-server' && a.id === 'download') {
+    const config = await post('olcrtc-client-config', {name: row}, true);
+    if (typeof config === 'string') {
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([config], {type:'application/yaml'}));
+      link.download = 'olcrtc-' + row + '.yaml';
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+    }
+    return;
+  }
   if (modId === 'meduza' && a.id === 'locations') {
     try {
       toast('Загружаю доступные локации MeduzaVPN…');

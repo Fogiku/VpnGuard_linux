@@ -165,6 +165,18 @@ func (s *simSys) Run(_ time.Duration, stdin, name string, a ...string) (string, 
 	case "systemctl":
 		u := arg(1)
 		switch arg(0) {
+		case "enable", "disable":
+			if u == "--now" {
+				s.units[arg(2)] = arg(0) == "enable"
+			}
+		case "list-units":
+			var lines []string
+			for unit, up := range s.units {
+				if up && strings.HasPrefix(unit, "vpnguard-olcrtc-peer@") {
+					lines = append(lines, unit+" loaded active running")
+				}
+			}
+			return strings.Join(lines, "\n"), 0
 		case "is-enabled":
 			return "enabled\n", 0
 		case "is-active":

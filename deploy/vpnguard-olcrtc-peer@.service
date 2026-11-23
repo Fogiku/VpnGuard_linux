@@ -1,0 +1,20 @@
+[Unit]
+Description=VpnGuard olcRTC server for %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+DynamicUser=yes
+LoadCredential=server.yaml:/etc/vpnguard/olcrtc-peers/%i.yaml
+ExecStart=/usr/local/bin/olcrtc %d/server.yaml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+IPAddressDeny=localhost
+RestrictNetworkInterfaces=~lo
+BindReadOnlyPaths=-/run/systemd/resolve/resolv.conf:/etc/resolv.conf
+
+[Install]
+WantedBy=multi-user.target

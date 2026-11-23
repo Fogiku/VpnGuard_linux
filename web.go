@@ -260,6 +260,9 @@ func startWeb(listen string) error {
 	api("routeconfirm", true, func(body map[string]json.RawMessage) (any, error) {
 		return "Связь после изменения маршрутов подтверждена", confirmRouteChangeFrom(str(body, "id"), str(body, "_remoteIP"))
 	})
+	api("olcrtc-client-config", true, func(b map[string]json.RawMessage) (any, error) {
+		return inboundOlc.clientConfig(str(b, "name"))
+	})
 	api("do", true, func(b map[string]json.RawMessage) (any, error) {
 		m := mod(str(b, "module"))
 		if m == nil {
