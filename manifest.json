@@ -1,15 +1,15 @@
 {
-  "version": "1.9.37",
-  "source": "1935a69fa0e82bb52571b6b44ac7ec60461b90b5",
+  "version": "1.9.39",
+  "source": "8d9114cd3cbc8fae5ee517f6c6c21431dcd8aa67",
   "sha256": {
-    "amd64": "767fa04e7affed1c25730d8cd61ae78b120fdfd625fbabdd982612202e97b5f1",
-    "arm64": "cec1d91f8108044cc9c4ef0f8ed8127465ed4d86e0b98b7186574501822a4561"
+    "amd64": "4432cdf56033d24f43972be1c839e0a0f9407bf86287bf0c99c5c2301c548e9b",
+    "arm64": "5d899eb9d74938f5a3a6a4460033db2a032bfd02678fbdc4d543f33fbdca5735"
   },
   "helpers": {
     "guarded_update.py": "6f318ca0f14789d5efcbf6a85b9712c55c240423ba4d5cf2cc760f985ccf43f9",
     "route_guard.py": "bda39fa92512ae004fe671178e02ecd014b64e9edc2b39b1824ecff05550afcf"
   },
   "changes": [
-    "Добавлена вкладка olcRTC-Server для входящих клиентских подключений. Для каждого устройства доступны создание профиля, запуск и остановка службы, скачивание клиентской конфигурации и отзыв профиля."
+    "Панель устанавливает olcRTC и выдаёт профили для Jitsi, Яндекс Телемоста и WB Stream."
   ]
 }
