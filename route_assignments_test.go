@@ -276,6 +276,16 @@ func TestOlcRTCExit(t *testing.T) {
 	orig := append([]Module(nil), Mods...)
 	t.Cleanup(func() { Mods = orig })
 	settings := mod("inet")
+	if olcVisible(inboundOlc) {
+		t.Fatal("olcRTC should be hidden by default")
+	}
+	if err := settings.Set("modules.olc", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if !olcVisible(inboundOlc) {
+		t.Fatal("olcRTC should be enabled")
+	}
+
 	if err := settings.Set("vpn.extraWireGuard", "wg1"); err != nil {
 		t.Fatal(err)
 	}
