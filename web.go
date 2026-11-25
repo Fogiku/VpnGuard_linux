@@ -33,6 +33,19 @@ func viewRules(rs []Rule) []ruleView {
 	}
 	return out
 }
+
+// Forecast failures from one status snapshot without changing module health.
+func forecastExit(id string, policy ExitPolicy, available map[string]bool) map[string]string {
+	choose := func(primaryDown, reserveDown bool) string {
+		exit, _, _ := chooseExit(id, policy, func(m Module) bool {
+			key := m.ID()
+			return available[key] && !(primaryDown && key == id) && !(reserveDown && key == policy.Reserve)
+		})
+		return exit
+	}
+	return map[string]string{"current": choose(false, false), "primaryDown": choose(true, false), "bothDown": choose(true, true)}
+}
+
 func buildState() map[string]any {
 	var mods, exits []map[string]any
 	level, problems := 0, []string{}
@@ -62,8 +75,16 @@ func buildState() map[string]any {
 	info, canRb := applyInfo, previousState != nil
 	applyMu.Unlock()
 	rtMu.Lock()
+	available := make(map[string]bool, len(exits))
 	for _, exit := range exits {
-		policy := rt.Policy[exit["id"].(string)]
+		available[exit["id"].(string)] = exit["up"].(bool)
+	}
+	for _, exit := range exits {
+		id := exit["id"].(string)
+		policy := rt.Policy[id]
+		if exit["policy"].(bool) {
+			exit["failover"] = forecastExit(id, policy, available)
+		}
 		exit["reserve"] = policy.Reserve
 		if policy.IfDown == "" {
 			policy.IfDown = "block"
@@ -233,6 +254,9 @@ func startWeb(listen string) error {
 		return state, nil
 	})
 	api("log", false, func(map[string]json.RawMessage) (any, error) { return snapshotLog(&logRing), nil })
+	api("route-trial", true, func(b map[string]json.RawMessage) (any, error) {
+		return previewRoute(str(b, "client"), str(b, "exit"))
+	})
 	api("nft", false, func(map[string]json.RawMessage) (any, error) {
 		s, ip := Compile()
 		return map[string]any{"script": s, "ip": ip}, nil

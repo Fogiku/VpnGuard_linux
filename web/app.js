@@ -336,16 +336,18 @@ function pRoutes() {
       <div class="grow"><div class="n1">${esc(r.title)}</div><div class="n3">${x.sc === 'o' ? 'только ' + esc(c.name) + ' · ' : ''}${r.last ? (x.sc === 'p' && c?.overrides.some(rule => rule.last) ? 'по умолчанию для профиля · у клиента свой выход' : 'правило по умолчанию') : esc(r.preset ? (R.presets.find(p => p.id === r.preset) || {}).match : r.match)}</div></div>
       ${fixed ? '' : `<button type="button" class="sq" data-mv="${k}:-1" aria-label="Поднять"${x.i === 0 ? ' disabled' : ''}>↑</button><button type="button" class="sq" data-mv="${k}:1" aria-label="Опустить"${x.i >= n - 1 ? ' disabled' : ''}>↓</button><button type="button" class="sq bad" data-del="${k}" aria-label="Удалить правило">×</button>`}</div>
       <div class="row"><label class="lbl" for="rx${k}">Выход</label><select id="rx${k}" data-rx="${k}">${xopts(r.exit)}</select></div>${r.why ? `<div class="note ${r.state}">${esc(r.why)}</div>` : ''}<span class="port" data-port="${k}" title="Потяните к узлу справа, чтобы сменить выход"></span></div>`; }).join('');
+  const exitName = id => esc(R.exits.find(x => x.id === id)?.name || id);
   const exits = R.exits.map(e => `<div class="fnode xnode${e.up ? '' : ' down'}" data-exit="${e.id}" style="--xc:${e.color}"><div class="row"><span class="dot ${e.level >= 0 ? 'l' + e.level : ''}"></span><span class="n1 grow">${esc(e.name)}</span>
     ${e.policy ? `<button type="button" class="sq" data-xedit="${e.id}" title="Резерв и поведение при сбое" aria-label="Настройки выхода">✎</button>${M(e.id)?.page ? `<a href="#${e.id}" class="n3" title="Открыть страницу модуля">модуль →</a>` : ''}` : ''}</div>
     <div class="n3">${esc(e.state)}${e.why ? ' · ' + esc(e.why) : ''}</div>${e.policy ? `<div class="n3">резерв: ${esc((R.exits.find(x => x.id === e.reserve) || { name: 'нет' }).name)} · если всё упало: ${e.ifDown === 'direct' ? 'напрямую' : 'блокировать'}</div>` : ''}
-    ${OPENX === e.id ? `<div class="row"><div class="field"><label for="xr">Резерв</label><select id="xr" data-pol="${e.id}:reserve">${xopts(e.reserve, e.id, true)}</select></div><div class="field"><label for="xd">Если всё упало</label><select id="xd" data-pol="${e.id}:ifDown"><option value="block"${e.ifDown !== 'direct' ? ' selected' : ''}>блокировать</option><option value="direct"${e.ifDown === 'direct' ? ' selected' : ''}>напрямую</option></select></div></div>` : ''}</div>`).join('');
+    ${OPENX === e.id ? `<div class="row"><div class="field"><label for="xr">Резерв</label><select id="xr" data-pol="${e.id}:reserve">${xopts(e.reserve, e.id, true)}</select></div><div class="field"><label for="xd">Если всё упало</label><select id="xd" data-pol="${e.id}:ifDown"><option value="block"${e.ifDown !== 'direct' ? ' selected' : ''}>блокировать</option><option value="direct"${e.ifDown === 'direct' ? ' selected' : ''}>напрямую</option></select></div></div>
+      <div class="n3"><b>Прогноз для новых соединений</b><br>Сейчас → ${exitName(e.failover.current)}<br>При отказе основного → ${exitName(e.failover.primaryDown)}<br>При отказе основного и резерва → ${exitName(e.failover.bothDown)}</div>` : ''}</div>`).join('');
   const extra = (S.routeResources || []).filter(r => r.priority && Number(r.table) >= 103 && Number(r.table) <= 199);
   const assignments = extra.length ? '<div class="card"><div class="sec">Назначения дополнительных VPN</div><table><tr><th>Выход</th><th>Метка</th><th>Таблица</th><th>Приоритет</th></tr>' +
     extra.map(r => `<tr><td>${esc(M(r.owner)?.name || r.owner)}</td><td>0x${r.mark.toString(16)}</td><td>${esc(r.table)}</td><td>${r.priority}</td></tr>`).join('') + '</table></div>' : '';
   const key = 'routes' + JSON.stringify([extra, S.routeResourceError, R.profiles, R.clients.map(x => [x.ip, x.name, x.on, x.profile, x.overrides]), R.exits, SELP, SELC, OPENX, R.canRollback]);
   const done = setHtml(hero(lvl, ['Все маршруты работают', 'Есть предупреждения', 'Часть трафика заблокирована'][lvl], whys.join(' · ') || 'Последнее применение правил: ' + (R.applyInfo || 'ещё не применялись'),
-      `<div class="row"><button type="button" id="bnft">Показать правила nftables</button>${R.canRollback ? '<button type="button" id="brb">Откатить последнее изменение</button>' : ''}</div>`) +
+      `<div class="row"><button type="button" id="btrial">Испытать выход</button><button type="button" id="bnft">Показать правила nftables</button>${R.canRollback ? '<button type="button" id="brb">Откатить последнее изменение</button>' : ''}</div>`) +
     (S.routeResourceError ? '<div class="card err">' + esc(S.routeResourceError) + '</div>' : '') + assignments +
     `<div class="sec">Профили и клиенты</div><div class="profiles">${tiles}</div>
     <form class="row" id="fprof" style="margin-top:10px"><label class="lbl" for="npn">Новый профиль</label><input type="text" id="npn" placeholder="Гости"><button type="submit">+ Создать профиль</button></form>
@@ -366,6 +368,23 @@ function pRoutes() {
   if (!done) return;
   requestAnimationFrame(wires);
   const pg = $('page'), q = (s, f) => pg.querySelectorAll(s).forEach(f);
+  $('btrial').onclick = () => {
+    const peers = R.clients.filter(x => !x.off);
+    const exits = R.exits.filter(x => x.up && x.id !== 'block');
+    if (!peers.length || !exits.length) { toast('Нужны включённый WG-клиент и доступный выход', true); return; }
+    modal(`<div class="sec">Испытать выход</div><p>Проверка создаёт отдельную политику для одного клиента и освобождает испытательные ресурсы после завершения.</p>
+      <label>WG-клиент<select id="trial-client">${peers.map(p => `<option value="${esc(p.ip)}">${esc(p.name)} · ${esc(p.ip)}</option>`).join('')}</select></label>
+      <label>Выход<select id="trial-exit">${exits.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('')}</select></label>
+      <button id="trial-run">Проверить</button><p id="trial-result" role="status"></p>`);
+    $('trial-run').onclick = async () => {
+      const button = $('trial-run'), label = $('trial-result');
+      button.disabled = true; label.textContent = 'Проверка…';
+      const r = await post('route-trial', {client:$('trial-client').value, exit:$('trial-exit').value}, true);
+      button.disabled = false;
+      label.textContent = r ? (r.mode === 'kernel' ? 'Ядро применило правила и проверило маршрут по метке' : 'Симулятор скомпилировал правила') +
+        ` · ${r.client} → ${r.device}. Ревизия ${r.revision}` : $('toast').textContent;
+    };
+  };
   $('bnft').onclick = async () => { const r = await get('nft'); modal(`<div class="sec">Правила nftables и маршруты</div><pre>${esc(r.script)}\n# ip:\n${esc((r.ip || []).map(x => 'ip ' + x.join(' ')).join('\n'))}</pre><button type="button" onclick="closeModal()">Закрыть</button>`); };
   if ($('brb')) $('brb').onclick = () => post('rollback');
   q('[data-selp]', t => { t.onclick = ev => { const ch = ev.target.closest('.chip'); SELP = t.dataset.selp; SELC = ch ? (SELC === ch.dataset.ip ? '' : ch.dataset.ip) : ''; LASTKEY = ''; render(); }; });

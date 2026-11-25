@@ -87,18 +87,21 @@ func loadRoutes() {
 
 // resolveExit — куда на самом деле пойдёт трафик правила: сам выход, его резерв или действие «если всё упало».
 func resolveExit(id string, pol map[string]ExitPolicy) (eff, state, why string) {
+	return chooseExit(id, pol[id], func(m Module) bool { return m.Status().Up })
+}
+
+func chooseExit(id string, p ExitPolicy, ready func(Module) bool) (eff, state, why string) {
 	m := mod(id)
 	if m == nil || m.Exit() == nil {
 		return "block", "bad", "выход «" + id + "» не найден → заблокировано"
 	}
-	if m.Status().Up {
+	if ready(m) {
 		return id, "ok", ""
 	}
-	p := pol[id]
-	if r := mod(p.Reserve); r != nil && r.Exit() != nil && r.Status().Up {
+	if r := mod(p.Reserve); r != nil && r.Exit() != nil && ready(r) {
 		return p.Reserve, "warn", m.Name() + " не отвечает → резерв " + r.Name()
 	}
-	if p.IfDown == "direct" && mod("direct").Status().Up {
+	if direct := mod("direct"); p.IfDown == "direct" && direct != nil && ready(direct) {
 		return "direct", "warn", m.Name() + " не отвечает, резерва нет → напрямую"
 	}
 	return "block", "bad", m.Name() + " не отвечает, резерва нет → заблокировано"
@@ -188,7 +191,9 @@ func validateRoutes(r *Routes) error {
 	}
 	return nil
 }
-func profileOf(ip string) string {
+func profileOf(ip string) string { return rt.profileOf(ip) }
+
+func (rt Routes) profileOf(ip string) string {
 	if p, ok := rt.Clients[ip]; ok {
 		for _, x := range rt.Profiles {
 			if x.ID == p {
@@ -231,9 +236,13 @@ func zapretCounterChain(match string) string {
 }
 
 func compileRoutes(reg routeRegistry) compiledRoutes {
-	var plan compiledRoutes
 	rtMu.Lock()
 	defer rtMu.Unlock()
+	return compileRouteModel(reg, rt, wgMod.Clients())
+}
+
+func compileRouteModel(reg routeRegistry, model Routes, clients []WgClient) compiledRoutes {
+	var plan compiledRoutes
 	byOwner := map[string]routeResource{}
 	for _, r := range reg.active {
 		byOwner[r.Owner] = r
@@ -245,7 +254,7 @@ func compileRoutes(reg routeRegistry) compiledRoutes {
 	}
 	var sets, lines []string
 	mark := func(id string) int {
-		eff, _, _ := resolveExit(id, rt.Policy)
+		eff, _, _ := resolveExit(id, model.Policy)
 		return int(byOwner[eff].Mark)
 	}
 	emit := func(src string, r Rule, tag string) {
@@ -286,19 +295,19 @@ func compileRoutes(reg routeRegistry) compiledRoutes {
 		}
 	}
 	members := map[string][]string{}
-	for _, c := range wgMod.Clients() {
+	for _, c := range clients {
 		if c.Off {
 			continue
 		}
-		for _, r := range rt.Overrides[c.IP] {
+		for _, r := range model.Overrides[c.IP] {
 			if !r.Last {
 				emit("ip saddr "+c.IP, r, "ov_"+c.IP+"_"+r.ID)
 			}
 		}
-		p := profileOf(c.IP)
+		p := model.profileOf(c.IP)
 		members[p] = append(members[p], c.IP)
 	}
-	for _, p := range rt.Profiles {
+	for _, p := range model.Profiles {
 		if len(members[p.ID]) == 0 {
 			continue
 		}
@@ -311,7 +320,7 @@ func compileRoutes(reg routeRegistry) compiledRoutes {
 		}
 		// A peer fallback replaces only the profile fallback for this source.
 		for _, ip := range members[p.ID] {
-			for _, r := range rt.Overrides[ip] {
+			for _, r := range model.Overrides[ip] {
 				if r.Last {
 					emit("ip saddr "+ip, r, "ov_"+ip+"_"+r.ID)
 				}

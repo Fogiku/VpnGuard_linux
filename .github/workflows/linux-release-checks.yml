@@ -39,6 +39,9 @@ jobs:
           sudo unshare --net env VPNGUARD_NETNS_TEST=1 "$RUNNER_TEMP/vpnguard-path.test" -test.run '^TestClientDefaultIsolatedKernel$' -test.v
           sudo unshare --net env VPNGUARD_NETNS_TEST=1 "$RUNNER_TEMP/vpnguard-path.test" -test.run '^TestDNSCoverageIsolatedKernel$' -test.v
           sudo unshare --net env VPNGUARD_NETNS_TEST=1 "$RUNNER_TEMP/vpnguard-path.test" -test.run '^TestDNSInterfaceAccessIsolatedKernel$' -test.v
+          sudo modprobe nfnetlink_queue
+          sudo unshare --net env VPNGUARD_TEST_ROUTE_TRIAL=1 python3 -m unittest discover -s deploy -p test_route_trial.py
+          sudo unshare --net env VPNGUARD_TEST_ROUTE_TRIAL=1 "$RUNNER_TEMP/vpnguard-path.test" -test.run '^TestRouteTrialCompiledKernel$' -test.v
           sudo env VPNGUARD_TEST_PROFILE_NETNS=1 python3 -m unittest discover -s deploy -p test_compare_client_profiles.py
       - name: Verify browser egress evidence against a local HTTPS server
         run: |
