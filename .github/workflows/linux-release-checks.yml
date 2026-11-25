@@ -19,6 +19,12 @@ jobs:
           go-version-file: go.mod
           cache: false
       - run: go test ./...
+      - name: Replay stage 0 regression baseline
+        run: python3 deploy/replay_stage0.py > "$RUNNER_TEMP/stage0.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stage0-report
+          path: ${{ runner.temp }}/stage0.json
       - run: python3 -m unittest discover -s deploy
       - name: Verify client tuple on an isolated Linux kernel network stack
         run: |

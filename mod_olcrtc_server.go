@@ -351,7 +351,7 @@ func (m *olcServer) refresh() {
 	}
 }
 func (*olcServer) Actions() []Action {
-	actions := []Action{{ID: "add", Title: "+ Добавить устройство", Args: []Field{
+	actions := []Action{{ID: "add", Title: "Создать туннель", Args: []Field{
 		{Key: "name", Title: "Имя устройства", Type: "text"},
 		{Key: "provider", Title: "Сервис", Type: "select", Value: "jitsi", Options: []Opt{{"jitsi", "Jitsi"}, {"telemost", "Яндекс Телемост"}, {"wbstream", "WB Stream"}}},
 		{Key: "room_mode", Title: "Комната", Type: "select", Value: "auto", Options: []Opt{{"auto", "Создать автоматически"}, {"existing", "Использовать готовую"}}},
@@ -366,7 +366,7 @@ func (*olcServer) Actions() []Action {
 func (m *olcServer) Tables() []Table {
 	m.tk.Lock()
 	defer m.tk.Unlock()
-	return []Table{{Title: "Клиенты olcRTC", Cols: []string{"Устройство", "Служба на шлюзе", "Клиент", "Принято", "Передано"}, Rows: m.rows, Empty: "Добавьте устройство для выдачи конфигурации.", Note: "Счётчики показывают весь IP-трафик службы с последнего запуска, включая служебный обмен. Прочерк означает, что счётчик недоступен.", Actions: []Action{{ID: "download", Title: "Скачать конфигурацию"}, {ID: "start", Title: "Запустить"}, {ID: "stop", Title: "Остановить"}, {ID: "remove", Title: "Удалить", Danger: true, Confirm: "Остановить службу и отозвать профиль этого устройства?"}}}}
+	return []Table{{Title: "Клиенты olcRTC", Cols: []string{"Устройство", "Служба на шлюзе", "Клиент", "Принято", "Передано"}, Rows: m.rows, Empty: "Здесь появятся созданные туннели.", Note: "Счётчики показывают весь IP-трафик службы с последнего запуска, включая служебный обмен. Прочерк означает, что счётчик недоступен.", Actions: []Action{{ID: "download", Title: "Скачать конфигурацию"}, {ID: "start", Title: "Запустить"}, {ID: "stop", Title: "Остановить"}, {ID: "remove", Title: "Удалить", Danger: true, Confirm: "Остановить службу и отозвать профиль этого устройства?"}}}}
 }
 
 func olcSystemctl(args ...string) error {

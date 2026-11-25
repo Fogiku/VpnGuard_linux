@@ -1,0 +1,102 @@
+{
+  "source": "synthetic_fixture",
+  "agent_version": "1.9.46",
+  "cases": [
+    {
+      "id": "healthy",
+      "client_type": "WG",
+      "probe": "youtube_playback",
+      "fault": "",
+      "expected_gateway": {
+        "control": true,
+        "application": true
+      },
+      "expected_client": "observed",
+      "report": {
+        "schema": 1,
+        "source": "client_browser",
+        "operator_path_label": "synthetic-wg",
+        "samples": [
+          {
+            "utc": "2026-11-25T00:00:00Z",
+            "control_http": 200,
+            "page_http": 200,
+            "playback": "playing",
+            "continuous_seconds": 6
+          },
+          {
+            "utc": "2026-11-25T00:00:08Z",
+            "control_http": 200,
+            "page_http": 200,
+            "playback": "playing",
+            "continuous_seconds": 6
+          }
+        ]
+      }
+    },
+    {
+      "id": "application_failure",
+      "client_type": "WG",
+      "probe": "youtube_playback",
+      "fault": "zapret.dpi",
+      "expected_gateway": {
+        "control": true,
+        "application": false
+      },
+      "expected_client": "failure",
+      "report": {
+        "schema": 1,
+        "source": "client_browser",
+        "operator_path_label": "synthetic-wg",
+        "samples": [
+          {
+            "utc": "2026-11-25T00:01:00Z",
+            "control_http": 200,
+            "page_http": null,
+            "playback": "page_failed",
+            "continuous_seconds": 0
+          },
+          {
+            "utc": "2026-11-25T00:01:08Z",
+            "control_http": 200,
+            "page_http": null,
+            "playback": "page_failed",
+            "continuous_seconds": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "wan_failure",
+      "client_type": "WG",
+      "probe": "youtube_playback",
+      "fault": "inet",
+      "expected_gateway": {
+        "control": false,
+        "application": false
+      },
+      "expected_client": "control_inconclusive",
+      "report": {
+        "schema": 1,
+        "source": "client_browser",
+        "operator_path_label": "synthetic-wg",
+        "samples": [
+          {
+            "utc": "2026-11-25T00:02:00Z",
+            "control_http": null,
+            "page_http": null,
+            "playback": "page_failed",
+            "continuous_seconds": 0
+          },
+          {
+            "utc": "2026-11-25T00:02:08Z",
+            "control_http": null,
+            "page_http": null,
+            "playback": "page_failed",
+            "continuous_seconds": 0
+          }
+        ]
+      }
+    }
+  ]
+}

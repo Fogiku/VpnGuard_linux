@@ -122,7 +122,17 @@ async function runAction(modId, a, row) {
         $('comparison-ok').onclick = closeModal;
         return;
       }
-      closeModal(); refresh(true);
+      closeModal();
+      if (modId === 'olcrtc-server' && a.id === 'add') {
+        const name = args.name.trim();
+        const started = await runAction(modId, {id:'start'}, name);
+        if (started) {
+          closeModal();
+          await runAction(modId, {id:'download'}, name);
+        }
+        return;
+      }
+      refresh(true);
     };
     return;
   } else if (a.confirm && !(await ask(a.confirm, a.title))) return;
@@ -136,9 +146,9 @@ async function runAction(modId, a, row) {
     if (progress === $('olc-install-modal') && !S?.olcInstall) {
       progress.textContent = result === null ? $('toast').textContent : 'olcRTC установлен';
     }
-    return;
+    return result;
   }
-  await post('do', { module: modId, action: a.id, args: args });
+  return await post('do', { module: modId, action: a.id, args: args });
 }
 const M = id => S.modules.find(m => m.id === id);
 function busyUI() { const a = document.activeElement, selection = window.getSelection(); return MODAL || DRAG || WIRE || (selection && !selection.isCollapsed) || (a && $('page').contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)); }
