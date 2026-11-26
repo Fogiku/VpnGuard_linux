@@ -69,6 +69,7 @@ async function runAction(modId, a, row) {
     return;
   }
   const compareAddress = modId === 'dns' && a.id === 'compare-address';
+  const showResult = compareAddress || (modId === 'zapret' && a.id === 'trial');
   if (compareAddress) {
     const options = [];
     const add = (prefix, title, rules) => {
@@ -115,9 +116,9 @@ async function runAction(modId, a, row) {
     $('af').onsubmit = async ev => {
       ev.preventDefault(); a.args.forEach((f, i) => { args[f.key] = $('aa' + i).value; });
       const b = $('af').querySelector('button[type=submit]'); b.disabled = true; $('ae').textContent = 'Выполняется…';
-      const r = await post('do', { module: modId, action: a.id, args: args }, compareAddress);
+      const r = await post('do', { module: modId, action: a.id, args: args }, showResult);
       if (r === null) { b.disabled = false; $('ae').textContent = document.getElementById('toast').textContent; return; }
-      if (compareAddress) {
+      if (showResult) {
         modal(`<div class="sec">${esc(a.title)}</div><p style="white-space:pre-line">${esc(r)}</p><button id="comparison-ok">Закрыть</button>`);
         $('comparison-ok').onclick = closeModal;
         return;

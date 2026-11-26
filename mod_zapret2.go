@@ -41,13 +41,16 @@ func (m *zapret2) load() {
 		return
 	}
 	if !loadJSON("zapret2.json", &m.strat) || len(m.strat) == 0 {
-		base := "--qnum=200 --lua-init=@lua/zapret-lib.lua --lua-init=@lua/zapret-antidpi.lua --payload=tls_client_hello "
-		m.strat = []zStrategy{
-			{Name: "fake", Args: base + "--lua-desync=fake:blob=fake_default_tls:tcp_md5"},
-			{Name: "fake + multisplit", Args: base + "--lua-desync=fake:blob=fake_default_tls:tcp_md5 --lua-desync=multisplit:pos=midsld"},
-			{Name: "multidisorder", Args: base + "--lua-desync=multidisorder:pos=1,midsld"},
-			{Name: "hostfakesplit", Args: base + "--lua-desync=hostfakesplit:host=www.google.com"},
-		}
+		m.strat = builtinZapretStrategies()
+	}
+}
+func builtinZapretStrategies() []zStrategy {
+	base := "--qnum=200 --lua-init=@lua/zapret-lib.lua --lua-init=@lua/zapret-antidpi.lua --payload=tls_client_hello "
+	return []zStrategy{
+		{Name: "fake", Args: base + "--lua-desync=fake:blob=fake_default_tls:tcp_md5"},
+		{Name: "fake + multisplit", Args: base + "--lua-desync=fake:blob=fake_default_tls:tcp_md5 --lua-desync=multisplit:pos=midsld"},
+		{Name: "multidisorder", Args: base + "--lua-desync=multidisorder:pos=1,midsld"},
+		{Name: "hostfakesplit", Args: base + "--lua-desync=hostfakesplit:host=www.google.com"},
 	}
 }
 func (m *zapret2) targets() []string {
@@ -369,12 +372,19 @@ func (m *zapret2) Set(k, v string) error {
 	return nil
 }
 func (m *zapret2) Actions() []Action {
-	return []Action{{ID: "pick", Title: "Подобрать стратегию", Confirm: "Во время подбора YouTube и Discord могут не открываться. Начать?"},
+	var presets []Opt
+	for _, preset := range builtinZapretStrategies() {
+		presets = append(presets, Opt{preset.Name, preset.Name})
+	}
+	return []Action{{ID: "trial", Title: "Испытать запуск профиля", Args: []Field{{Key: "preset", Title: "Встроенный профиль", Type: "select", Value: presets[0].V, Options: presets, Help: "Проверка запуска nfqws2 в отдельной сети Linux без клиентского трафика."}}}, {ID: "pick", Title: "Подобрать стратегию", Confirm: "Во время подбора YouTube и Discord могут не открываться. Начать?"},
 		{ID: "check", Title: "Проверить сайты сейчас"},
 		{ID: "add", Title: "Добавить стратегию", Args: []Field{{Key: "name", Title: "Название", Type: "text"}, {Key: "args", Title: "Параметры nfqws2", Type: "textarea"}}},
 		{ID: "restart", Title: "Перезапустить nfqws2"}}
 }
 func (m *zapret2) Do(id string, a map[string]string) (string, error) {
+	if id == "trial" {
+		return trialZapretPreset(a["preset"])
+	}
 	m.load()
 	i := m.index(a["row"])
 	switch id {
