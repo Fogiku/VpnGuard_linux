@@ -1,15 +1,15 @@
 {
-  "version": "1.9.48",
-  "source": "8043d66afba9abe12bd753042f839e543703c0df",
+  "version": "1.9.49",
+  "source": "68bec4a5f397701786edd4afd7626edb7aca1e05",
   "sha256": {
-    "amd64": "2366f2473927bd1ff406dfd26bdd4e854ae0cc1b5c3b898d3d2f41c3e4f7df71",
-    "arm64": "861ebde94d9951047b908e6a9f553173f60e14a28cdc2b3ac42f901ba983ac09"
+    "amd64": "005a87ccb45a59557c5b594a198b0501041c8560d13291e9198d56f655044b4e",
+    "arm64": "a72fd278f4db564adc550629710d8af397afb72e899f45ce46d847a8a6e94663"
   },
   "helpers": {
     "guarded_update.py": "6f318ca0f14789d5efcbf6a85b9712c55c240423ba4d5cf2cc760f985ccf43f9",
     "route_guard.py": "bda39fa92512ae004fe671178e02ecd014b64e9edc2b39b1824ecff05550afcf"
   },
   "changes": [
-    "В разделе «Потоки» и в отчёте видны размер снимка шлюза, число потоков выборки WG, метки протоколов, целевые сервисы, Unknown и привязки к conntrack. В таблице соединений отсутствие привязки обозначено отдельно от результата Unknown."
+    "Клиентская проба Discord Gateway сопоставляет открытый WebSocket с записью conntrack шлюза. Отчёт содержит результат Hello, закреплённый выход и наблюдаемую ревизию правил при подтверждённой привязке."
   ]
 }
