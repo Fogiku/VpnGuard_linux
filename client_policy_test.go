@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -48,7 +51,30 @@ func TestWireGuardClientPolicy(t *testing.T) {
 	if out, code := S.Run(5*time.Second, script, "nft", "-f", "-"); code != 0 {
 		t.Fatal(out)
 	}
-	server := httptest.NewUnstartedServer(nil)
+	// Minimal Discord Gateway fixture on the WG endpoint, sharing the HTTPS certificate.
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") != "websocket" {
+			http.NotFound(w, r)
+			return
+		}
+		conn, rw, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		conn.SetDeadline(time.Now().Add(25 * time.Second))
+		digest := sha1.Sum([]byte(r.Header.Get("Sec-WebSocket-Key") + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+		fmt.Fprintf(rw, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n", base64.StdEncoding.EncodeToString(digest[:]))
+		message := []byte(`{"op":10,"d":{"heartbeat_interval":45000}}`)
+		rw.Write([]byte{0x81, byte(len(message))})
+		rw.Write(message)
+		rw.Flush()
+		// Keep the connection alive during the gateway observation; acknowledge Close.
+		if _, err := rw.ReadByte(); err == nil {
+			rw.Write([]byte{0x88, 0})
+			rw.Flush()
+		}
+	}))
 	server.Listener.Close()
 	var err error
 	server.Listener, err = net.Listen("tcp4", "10.99.0.1:443")
@@ -72,14 +98,21 @@ func TestWireGuardClientPolicy(t *testing.T) {
 	cmd := exec.CommandContext(ctx, "nsenter", "-t", client, "-n", "python3", "-c", fmt.Sprintf(`import json, os, socket, sys
 from unittest.mock import patch
 sys.path.insert(0, "deploy")
-from probe_client_path import measure
+from probe_client_path import measure, measure_discord
 os.environ["PATH"] = %q + ":" + os.environ["PATH"]
 os.environ["SSL_CERT_FILE"] = %q
 resolve = socket.getaddrinfo
 with patch("socket.getaddrinfo", side_effect=lambda name,*args: resolve("10.99.0.1" if name=="example.com" else name,*args)):
-    print(json.dumps(measure("example.com","lab",False)),flush=True)
+    result = measure("example.com","lab",False)
+    if os.environ.get("VPNGUARD_TEST_DISCORD_PATH") == "1":
+        result["discord"] = measure_discord("lab", False, host="example.com")
+    print(json.dumps(result),flush=True)
 `, dir, cert))
 	var result struct {
+		Discord struct {
+			Gateway string `json:"discord_gateway"`
+			Flow    struct{ PolicyRevision, PinnedExit, Correlation string }
+		}
 		TLS  bool
 		HTTP int
 		Flow struct{ PolicyRevision, PinnedExit, Correlation string }
@@ -90,6 +123,9 @@ with patch("socket.getaddrinfo", side_effect=lambda name,*args: resolve("10.99.0
 	}
 	if err := json.Unmarshal(raw, &result); err != nil || !result.TLS || result.HTTP != 404 || result.Flow.PolicyRevision != marker[1] || result.Flow.PinnedExit != "direct" || result.Flow.Correlation != "pin_and_observed_policy" {
 		t.Fatal(string(raw), err)
+	}
+	if os.Getenv("VPNGUARD_TEST_DISCORD_PATH") == "1" && (result.Discord.Gateway != "hello" || result.Discord.Flow != result.Flow) {
+		t.Fatal(string(raw))
 	}
 	t.Log(string(raw))
 }

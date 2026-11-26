@@ -15,6 +15,15 @@ from flow_snapshot import correlate, match_tcp, table_identity
 
 
 class PathObservationTests(unittest.TestCase):
+    def test_discord_hello(self):
+        from probe_client_path import discord_hello
+        self.assertTrue(discord_hello('{"op":10,"d":{"heartbeat_interval":45000}}'))
+        for message in (b'', '[]', '{}', 'invalid', '{"op":10,"d":null}',
+                        '{"op":10,"d":{"heartbeat_interval":true}}',
+                        '{"op":0,"d":{"heartbeat_interval":45000}}',
+                        '{"op":10,"d":{"heartbeat_interval":1e999}}'):
+            self.assertFalse(discord_hello(message))
+
     def test_full_tuple_and_ambiguous_zones(self):
         row = dict(protocol="tcp", source="192.0.2.2", sourcePort=30000,
                    destination="192.0.2.3", destinationPort=443,
