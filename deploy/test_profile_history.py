@@ -11,7 +11,7 @@ import sys
 import tempfile
 import unittest
 
-from compare_client_profiles import compare
+from compare_client_profiles import compare, profile_digest
 from profile_history import DAY, record
 from test_compare_client_profiles import report
 
@@ -50,6 +50,37 @@ class ShadowHistoryTests(unittest.TestCase):
         a,b = self.reports("d", self.now-100)
         b["samples"][0]["control_http"] = 503
         self.assertIsNone(record(self.path, "isp", compare(a,b), self.now)["youtube"]["suggested_profile"])
+
+    def test_file_revisions_and_target_sets(self):
+        profile = self.path.with_suffix(".conf")
+        def tagged(session, at):
+            pair = self.reports(session, at)
+            for item, value in zip(pair, [b"base", b"candidate"]):
+                profile.write_bytes(value)
+                item["schema"] = 4
+                item["lab"]["probe_version"] = 1
+                item["lab"]["profile_revision"] = profile_digest(profile)
+            return pair
+        first = tagged("a", self.now-900)
+        second = tagged("b", self.now-600)
+        baseline = compare(*first)
+        record(self.path, "isp", baseline, self.now)
+        result = record(self.path, "isp", compare(*second), self.now)["youtube"]
+        self.assertEqual(result["suggested_profile"], second[1]["lab"]["profile_revision"])
+        third = tagged("c", self.now-300)
+        for sample in third[0]["samples"] + third[1]["samples"]:
+            del sample["discord_gateway"]
+        different = compare(*third)
+        self.assertNotEqual(different["target_set_sha256"], baseline["target_set_sha256"])
+        self.assertEqual(record(self.path, "isp", different, self.now)["youtube"]["reason"], "need_second_session")
+        profile.write_bytes(b"edited candidate")
+        second[1]["lab"]["profile_revision"] = profile_digest(profile)
+        self.assertEqual(record(self.path, "isp", compare(*second), self.now)["youtube"]["reason"], "need_second_session")
+        second[1]["schema"] = 3
+        with self.assertRaises(ValueError):
+            compare(*second)
+        second[0]["schema"] = 3
+        self.assertEqual(record(self.path, "isp", compare(*second), self.now)["youtube"]["reason"], "need_second_session")
 
     def test_concurrent_replay_and_rollback(self):
         result = compare(*self.reports("a", self.now-500))

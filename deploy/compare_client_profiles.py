@@ -5,10 +5,21 @@ import ipaddress
 import json
 import math
 import os
+import re
 import sqlite3
 from pathlib import Path
 
-from profile_history import capture_timestamp, record
+from profile_history import capture_timestamp, digest, record
+
+
+def profile_digest(path):
+    if not path.is_file():
+        raise ValueError("expected a regular profile file")
+    sha = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(65536), b""):
+            sha.update(block)
+    return sha.hexdigest()
 
 
 def lab_context(session, revision, control, browser_version, channel):
@@ -46,10 +57,17 @@ def sample_state(sample, service):
 
 
 def compare(a, b):
+    if a.get("schema") != b.get("schema"):
+        raise ValueError("cannot pair manual and file-based profile revisions")
     for report in (a, b):
-        if report.get("schema") != 3 or report.get("source") != "client_browser":
+        if report.get("schema") not in (3, 4) or report.get("source") != "client_browser":
             raise ValueError("expected two browser reports captured with --lab-session")
     labs = [r["lab"] for r in (a, b)]
+    if a["schema"] == 4:
+        if any(type(lab.get("probe_version")) is not int or lab["probe_version"] != 1 for lab in labs):
+            raise ValueError("unsupported lab probe version")
+        if any(not re.fullmatch(r"[0-9a-f]{64}", lab.get("profile_revision") or "") for lab in labs):
+            raise ValueError("expected SHA-256 profile revisions")
     for key in ("session", "boot_sha256", "control_sha256", "channel", "browser_version"):
         if not labs[0].get(key) or labs[0][key] != labs[1].get(key):
             raise ValueError("different or missing " + key)
@@ -98,6 +116,12 @@ def compare(a, b):
                   control_sha256=labs[0]["control_sha256"],
                   video_id=a.get("video_id"), profiles=[lab["profile_revision"] for lab in labs],
                   comparison={})
+    if a["schema"] == 4:
+        targets = {"probe_version": labs[0]["probe_version"], "runs": len(left),
+                   "video_id": a.get("video_id"), "services": services,
+                   "control_sha256": labs[0]["control_sha256"],
+                   "reflectors": {f: left[0]["egress"][f]["target_sha256"] for f in families}}
+        result.update(profile_source="file_sha256", target_set_sha256=digest(targets))
     for service in services:
         pairs = []
         for i, (first, second) in enumerate(zip(left, right)):

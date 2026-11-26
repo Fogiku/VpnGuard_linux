@@ -7,6 +7,7 @@ import re
 import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from playwright.sync_api import Error, sync_playwright
@@ -205,7 +206,9 @@ def main():
     parser.add_argument("--runs", type=int, choices=range(1, 6), default=2)
     parser.add_argument("--channel", choices=["msedge", "chrome", "chromium"])
     parser.add_argument("--lab-session", help="Shared ID for one isolated Linux A/B run")
-    parser.add_argument("--profile-revision", help="Operator-supplied candidate profile revision")
+    profiles = parser.add_mutually_exclusive_group()
+    profiles.add_argument("--profile-file", type=Path, help="Hash the candidate profile file before and after the lab run")
+    profiles.add_argument("--profile-revision", help="Operator-supplied candidate profile revision")
     for family in (4, 6):
         parser.add_argument("--egress-v%d" % family, nargs=2, metavar=("HTTPS_URL", "EXPECTED_CIDR"),
                             help="Check the source address returned by your HTTPS JSON reflector")
@@ -215,10 +218,11 @@ def main():
                   for family, values in ((4, args.egress_v4), (6, args.egress_v6)) if values}
     except ValueError as exc:
         parser.error(str(exc))
-    if args.lab_session is not None or args.profile_revision is not None:
-        if not all(re.fullmatch(r"[A-Za-z0-9_.-]{1,96}", v or "")
-                   for v in (args.lab_session, args.profile_revision)):
-            parser.error("provide both lab session and profile revision (1-96 identifier characters)")
+    if args.profile_file is not None or args.profile_revision is not None or args.lab_session is not None:
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,96}", args.lab_session or ""):
+            parser.error("provide a lab session ID (1-96 identifier characters)")
+        if args.profile_file is None and not re.fullmatch(r"[A-Za-z0-9_.-]{1,96}", args.profile_revision or ""):
+            parser.error("provide --profile-file or a valid --profile-revision")
     if not args.video_id and not args.discord:
         parser.error("select --video-id or --discord or both")
     if args.video_id and not re.fullmatch(r"[A-Za-z0-9_-]{11}", args.video_id):
@@ -230,20 +234,29 @@ def main():
         try:
             lab = None
             if args.lab_session:
-                from compare_client_profiles import lab_context
+                from compare_client_profiles import lab_context, profile_digest
                 try:
-                    lab = lab_context(args.lab_session, args.profile_revision, args.control,
+                    revision = profile_digest(args.profile_file) if args.profile_file else args.profile_revision
+                    lab = lab_context(args.lab_session, revision, args.control,
                                       browser.version, args.channel)
                 except (OSError, ValueError) as exc:
                     parser.error(str(exc))
             target = "https://www.youtube.com/watch?v=" + args.video_id if args.video_id else None
             samples = [measure(browser, target, args.control, args.discord, egress) for _ in range(args.runs)]
+            if args.profile_file:
+                try:
+                    if profile_digest(args.profile_file) != revision:
+                        parser.error("profile file changed during capture")
+                except (OSError, ValueError) as exc:
+                    parser.error(str(exc))
         finally:
             browser.close()
     report = {"schema": 2 if args.discord else 1, "source": "client_browser",
               "operator_path_label": args.path_label, "samples": samples}
     if lab:
-        report.update(schema=3, lab=lab)
+        if args.profile_file:
+            lab["probe_version"] = 1
+        report.update(schema=4 if args.profile_file else 3, lab=lab)
     if args.video_id:
         report.update(video_id=args.video_id, result=conclusion(samples))
     print(json.dumps(report, ensure_ascii=False, indent=2))

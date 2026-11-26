@@ -52,3 +52,41 @@ class ClientPlaybackTest(unittest.TestCase):
                 self.assertEqual(discord_gateway(page), expected)
                 page.close()
             browser.close()
+
+@unittest.skipUnless(os.getenv("VPNGUARD_TEST_BROWSER"), "optional Playwright browser")
+class FileRevisionCaptureTests(unittest.TestCase):
+    def test_capture_checks_file_at_both_ends(self):
+        import contextlib
+        import hashlib
+        import io
+        import json
+        from pathlib import Path
+        import tempfile
+        from unittest.mock import patch
+        from probe_client_playback import main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = Path(tmp, "candidate.conf")
+            profile.write_bytes(b"candidate fixture")
+            args = ["probe", "--lab-session", "trial", "--profile-file", str(profile),
+                    "--discord", "--path-label", "wg", "--control", "https://example.test/",
+                    "--channel", os.environ["VPNGUARD_TEST_BROWSER"], "--runs", "1"]
+            def context(session, revision, *rest):
+                return {"session": session, "profile_revision": revision}
+            def mutate(*args):
+                profile.write_bytes(b"updated")
+                return {}
+            with patch("sys.argv", args), patch("compare_client_profiles.lab_context", context):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output), patch("probe_client_playback.measure", return_value={}):
+                    main()
+                result = json.loads(output.getvalue())
+                self.assertEqual(result["schema"], 4)
+                self.assertEqual(result["lab"]["profile_revision"], hashlib.sha256(profile.read_bytes()).hexdigest())
+                self.assertEqual(result["lab"]["probe_version"], 1)
+                output, errors = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors), patch("probe_client_playback.measure", mutate):
+                    with self.assertRaises(SystemExit):
+                        main()
+                self.assertEqual(output.getvalue(), "")
+                self.assertIn("profile file changed", errors.getvalue())

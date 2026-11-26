@@ -53,9 +53,12 @@ def record(path, network, comparison, now=None):
                 raise ValueError("history accepts past trials within 30 days")
             reflectors = [{family: [c["target_sha256"], c["expected"]] for family, c in side.items()}
                           for side in pairs[0].get("egress", [])]
-            context = digest([network, service, comparison["profiles"], comparison["browser_version"],
+            context_fields = [network, service, comparison["profiles"], comparison["browser_version"],
                               comparison["channel"], comparison["control_sha256"], reflectors,
-                              comparison["video_id"] if service == "youtube" else None])
+                              comparison["video_id"] if service == "youtube" else None]
+            if comparison.get("profile_source") == "file_sha256":
+                context_fields.extend(["file_sha256", comparison["target_set_sha256"]])
+            context = digest(context_fields)
             session = digest(comparison["session"])
             evidence = digest(trial)
             stored = db.execute("SELECT evidence FROM profile_trials WHERE context=? AND session=?",
