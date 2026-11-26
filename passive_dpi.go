@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -64,11 +65,22 @@ func sampleDPITable(iface string, events *flowEventSession) (Table, dpiSampleRes
 		return t, result, nil
 	}
 	counts := map[string]int{}
+	targets := 0
 	for _, o := range observed {
-		counts[o.Flow.Application]++
+		label := o.Flow.Application
+		counts[label]++
+		// nDPI 4.2 emits either a standalone label or master.service.
+		_, service, compound := strings.Cut(label, ".")
+		if !compound {
+			service = label
+		}
+		switch strings.ToLower(service) {
+		case "youtube", "youtubeupload", "discord", "telegram", "netflix", "steam":
+			targets++
+		}
 	}
 	result.Status = "sample"
-	result.Counts = &dpiSampleCounts{Packets: *batch.Packets, Unknown: counts["Unknown"], Recognized: len(observed) - counts["Unknown"]}
+	result.Counts = &dpiSampleCounts{Packets: *batch.Packets, TargetServices: targets, Unknown: counts["Unknown"], Recognized: len(observed) - counts["Unknown"]}
 	names := make([]string, 0, len(counts))
 	for name := range counts {
 		names = append(names, name)

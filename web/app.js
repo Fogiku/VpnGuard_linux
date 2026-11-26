@@ -490,10 +490,12 @@ function drawRateChart(cv, a) {
 function dpiReportLines(history) {
   if (!history?.enabled) return ['nDPI: сбор выключен или недоступен.'];
   if (!history.samples.length) return ['nDPI: ожидание первой попытки.'];
-  return ['nDPI · последние выборки (UTC)', ...history.samples.map(s => {
+  return ['nDPI · последние выборки (UTC). Целевые сервисы: YouTube, Discord, Telegram, Netflix, Steam. Снимок шлюза сделан после выборки WG.', ...history.samples.map(s => {
     const counts = s.counts;
-    const result = new Date(s.at * 1000).toISOString() + ' · ' + s.description;
-    return counts ? result + ' · пакетов ' + counts.packets + ', распознано ' + counts.recognized +
+    const snapshot = s.snapshotRows == null ? 'нет снимка' : s.snapshotRows + (s.truncated ? ' (неполный)' : '');
+    const result = new Date(s.at * 1000).toISOString() + ' · ' + s.description + ' · строки IPv4 шлюза: ' + snapshot;
+    return counts ? result + ' · пакетов ' + counts.packets + ', потоков WG в CSV ' + (counts.recognized + counts.unknown) + ', с меткой протокола ' + counts.recognized +
+      ', из них целевых сервисов ' + counts.targetServices +
       ', Unknown ' + counts.unknown + ', связано с conntrack ' + counts.bound : result;
   })];
 }

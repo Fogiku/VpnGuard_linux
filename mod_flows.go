@@ -74,8 +74,35 @@ func (m *flowModule) Tick() {
 		bindings = matched
 		dpi = &sample
 	}
+	var view struct {
+		Rows      []flowRow `json:"rows"`
+		Truncated bool      `json:"truncated"`
+	}
+	var at time.Time
+	level, status, why := -1, "Выключен", "Снимки потоков не собираются"
+	if cfgBool("flows.enabled", false) {
+		if Sim {
+			level, status, why = 1, "Имитация", "Реальный conntrack в имитации не читается"
+		} else {
+			output, code := S.Run(3*time.Second, flowSnapshotScript, "python3", "-")
+			if code != 0 || json.Unmarshal([]byte(output), &view) != nil || len(view.Rows) > 512 {
+				level, status, why = 1, "Нет снимка", "Не удалось прочитать conntrack; нужны Python 3 и CAP_NET_ADMIN."
+				view.Rows, view.Truncated = nil, false
+			} else {
+				at = time.Now()
+				count := len(view.Rows)
+				result.SnapshotRows, result.Truncated = &count, view.Truncated
+				level, status, why = 0, "Снимок соединений", "IPv4 TCP/UDP. Метка nDPI появляется при подтверждённой привязке к поколению соединения."
+				if view.Truncated {
+					level = 1
+					why += " Достигнут лимит 512 записей; снимок неполный."
+				}
+			}
+		}
+	}
 	m.mu.Lock()
-	m.dpi = dpi
+	m.rows, m.at, m.truncated = view.Rows, at, view.Truncated
+	m.bindings, m.dpi = bindings, dpi
 	if dpi == nil {
 		m.dpiHistory = nil
 	} else {
@@ -84,51 +111,8 @@ func (m *flowModule) Tick() {
 		}
 		m.dpiHistory = append(m.dpiHistory, result)
 	}
-	m.bindings = nil
 	m.mu.Unlock()
-	if !cfgBool("flows.enabled", false) {
-		m.mu.Lock()
-		m.rows = nil
-		m.at = time.Time{}
-		m.mu.Unlock()
-		m.setSt(-1, false, "Выключен", "Снимки потоков не собираются")
-		return
-	}
-	if Sim {
-		m.mu.Lock()
-		m.rows = nil
-		m.at = time.Time{}
-		m.mu.Unlock()
-		m.setSt(1, false, "Имитация", "Реальный conntrack в имитации не читается")
-		return
-	}
-	output, code := S.Run(3*time.Second, flowSnapshotScript, "python3", "-")
-	var view struct {
-		Rows      []flowRow `json:"rows"`
-		Seen      int       `json:"seen"`
-		Truncated bool      `json:"truncated"`
-	}
-	if code != 0 || json.Unmarshal([]byte(output), &view) != nil || len(view.Rows) > 512 {
-		m.mu.Lock()
-		m.rows = nil
-		m.at = time.Time{}
-		m.mu.Unlock()
-		m.setSt(1, false, "Нет снимка", "Не удалось прочитать conntrack; нужны Python 3 и CAP_NET_ADMIN. Старые данные удалены.")
-		return
-	}
-	m.mu.Lock()
-	m.rows = view.Rows
-	m.bindings = bindings
-	m.truncated = view.Truncated
-	m.at = time.Now()
-	m.mu.Unlock()
-	why := "IPv4 TCP/UDP. При недостатке данных приложение указано как Unknown. Это снимок таблицы ядра, не история и не измерение скорости."
-	level := 0
-	if view.Truncated {
-		level = 1
-		why += " Достигнут лимит 512 записей; снимок неполный."
-	}
-	m.setSt(level, false, "Снимок соединений", why)
+	m.setSt(level, false, status, why)
 }
 
 type flowCounts struct {
@@ -183,7 +167,7 @@ func (m *flowModule) Tables() []Table {
 	fixedResources := legacyRouteResources()
 	for i, r := range m.rows {
 		id := "нет ID"
-		app, observedAt := "Unknown", "—"
+		app, observedAt := "Нет привязки", "—"
 		if r.ConntrackID != nil {
 			if observation, ok := labels[dpiKey(r)]; ok {
 				app = observation.Flow.Application
@@ -193,7 +177,7 @@ func (m *flowModule) Tables() []Table {
 		}
 		rows = append(rows, []string{strconv.Itoa(i), r.Protocol, fmt.Sprintf("%s:%d", r.Source, r.SourcePort), fmt.Sprintf("%s:%d", r.Destination, r.DestinationPort), fmt.Sprintf("0x%08x", r.Mark), app, id, strconv.Itoa(int(r.Zone)), observedAt, flowPinLabel(r.Mark, fixedResources)})
 	}
-	note := "Метка nDPI относится к последней выборке и подтверждённому поколению conntrack. Порт 443 не доказывает HTTPS/QUIC; ECH и приложения не определяются. Маршруты не изменяются."
+	note := "Метка nDPI относится к последней выборке и подтверждённому поколению conntrack. Unknown означает, что nDPI обработал поток и вернул Unknown. Для привязки включите наблюдение жизненного цикла и сбор nDPI. Маршруты не изменяются."
 	if !m.at.IsZero() {
 		note += " Снимок: " + m.at.Format(time.RFC3339)
 	}
@@ -204,7 +188,7 @@ func (m *flowModule) Tables() []Table {
 			note += " Нет свежих данных подписки на события."
 		}
 	}
-	tables := []Table{{Title: "Соединения IPv4", Cols: []string{"ID", "Протокол", "Источник", "Назначение", "ct mark", "Приложение", "Conntrack ID", "Zone", "Наблюдение nDPI", "Закрепление (биты 16–23)"}, Rows: rows, Empty: "Нет снимка", Note: note + " Для дополнительных выходов показан код закрепления. Фактический интерфейс пакета проверяется отдельно. Conntrack ID может повторно использоваться; он не доказывает непрерывность соединения между снимками."}}
+	tables := []Table{{Title: "Соединения IPv4", Cols: []string{"ID", "Протокол", "Источник", "Назначение", "ct mark", "Метка nDPI", "Conntrack ID", "Zone", "Наблюдение nDPI", "Закрепление (биты 16–23)"}, Rows: rows, Empty: "Нет снимка", Note: note + " Для дополнительных выходов показан код закрепления. Фактический интерфейс пакета проверяется отдельно. Conntrack ID может повторно использоваться; он не доказывает непрерывность соединения между снимками."}}
 	if m.dpi != nil {
 		tables = append(tables, *m.dpi, dpiHistoryTable(m.dpiHistory))
 	}

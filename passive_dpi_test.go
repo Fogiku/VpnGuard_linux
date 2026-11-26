@@ -67,7 +67,7 @@ for _ in range(400):
 		t.Fatal(history)
 	}
 	c := history.Samples[0].Counts
-	if c.Packets < 1 || c.Bound != 1 || c.Recognized != 1 || c.Unknown != 0 {
+	if c.Packets < 1 || c.Bound != 1 || c.Recognized != 1 || c.Unknown != 0 || c.TargetServices != 0 || history.Samples[0].SnapshotRows == nil || *history.Samples[0].SnapshotRows < 1 {
 		t.Fatal(c)
 	}
 	t.Logf("nDPI history: packets=%d recognized=%d bound=%d", c.Packets, c.Recognized, c.Bound)
@@ -153,6 +153,40 @@ func TestPassiveDPISettingsAndExpiredResult(t *testing.T) {
 	}
 	if s.probes != probes || len(m.Tables()) != 1 || len(m.diagnosticDPI().Samples) != 0 {
 		t.Fatal("capture still active")
+	}
+}
+
+func TestDPIServiceCoverage(t *testing.T) {
+	setup(t)
+	oldS, oldSim := S, Sim
+	defer func() { S, Sim = oldS, oldSim }()
+	s := &sampleTestSys{flowTestSys: flowTestSys{Sys: S, output: `{"rows":[],"truncated":true}`}}
+	S, Sim = s, false
+	cfgMap["flows.enabled"], cfgMap["flows.dpiEnabled"] = "true", "true"
+	m := &flowModule{}
+	for _, tc := range []struct {
+		label            string
+		targets, unknown int
+	}{
+		{"91.124,TLS.YouTube", 1, 0}, {"124,YouTube", 1, 0}, {"91,TLS", 0, 0}, {"91.126,TLS.Google", 0, 0}, {"0,Unknown", 0, 1},
+	} {
+		data, err := json.Marshal(map[string]any{"start": 1700000000000, "end": 1700000002000, "packets": 1, "csv": dpiCSVHeader + strings.Replace(dpiCSVRow, ",7,HTTP", ","+tc.label, 1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.dpiOutput = string(data)
+		m.Tick()
+		h := m.diagnosticDPI().Samples
+		row := h[len(h)-1]
+		if row.SnapshotRows == nil || *row.SnapshotRows != 0 || !row.Truncated || row.Counts == nil || row.Counts.TargetServices != tc.targets || row.Counts.Unknown != tc.unknown || row.Counts.Recognized+row.Counts.Unknown != 1 {
+			t.Fatal(tc, row)
+		}
+	}
+	s.output = "bad snapshot"
+	m.Tick()
+	h := m.diagnosticDPI().Samples
+	if h[len(h)-1].SnapshotRows != nil || h[len(h)-1].Counts == nil {
+		t.Fatal(h)
 	}
 }
 

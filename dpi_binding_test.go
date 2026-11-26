@@ -54,20 +54,23 @@ func TestDisplayedDPILabelExpiresWithGeneration(t *testing.T) {
 		}
 	}
 	label("DNS")
-	s.frame.Rows[0].Generation = "epoch:2"
+	d.Flow.Application = "Unknown"
+	m.bindings[life.Generation] = dpiBinding{Epoch: "epoch", Generation: life.Generation, Observation: d}
 	label("Unknown")
+	s.frame.Rows[0].Generation = "epoch:2"
+	label("Нет привязки")
 	s.frame.Rows[0] = life
 	s.frame.DrainedAtNs = m.at.Add(-time.Millisecond).UnixNano()
-	label("Unknown")
+	label("Нет привязки")
 	s.frame.DrainedAtNs = now.UnixNano()
 	m.truncated = true
-	label("Unknown")
+	label("Нет привязки")
 	m.truncated = false
 	extra := r
 	extra.Zone = 3
 	m.rows = append(m.rows, extra)
-	label("Unknown")
+	label("Нет привязки")
 	m.rows = m.rows[:1]
 	s.failed = true
-	label("Unknown")
+	label("Нет привязки")
 }

@@ -35,7 +35,7 @@ func TestFlowObserverClearsFailedAndDisabledSnapshots(t *testing.T) {
 	if err := m.Set("flows.enabled", "true"); err != nil {
 		t.Fatal(err)
 	}
-	if len(m.rows) != 1 || m.Tables()[0].Rows[0][5] != "Unknown" {
+	if len(m.rows) != 1 || m.Tables()[0].Rows[0][5] != "Нет привязки" {
 		t.Fatal("snapshot or unknown classification lost")
 	}
 	if counts := m.snapshotCounts(); counts == nil || counts.UDP != 1 || counts.TCP != 0 || counts.Truncated {

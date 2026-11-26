@@ -35,7 +35,8 @@ def fixture(path):
     dns = struct.pack('!HHHHHH', 123, 256, 1, 0, 0, 0) + b'\x07example\x04test\0' + struct.pack('!HH', 1, 1)
     packets = [packet(6, 41001, 80, b'GET / HTTP/1.1\r\nHost: example.test\r\nUser-Agent: OfflineFixture\r\n\r\n'),
                packet(17, 41002, 53, dns),
-               packet(17, 41003, 443, b'opaque-test-payload-which-is-not-quic')]
+               packet(17, 41003, 443, b'opaque-test-payload-which-is-not-quic'),
+               packet(6, 41004, 80, b'GET / HTTP/1.1\r\nHost: www.youtube.com\r\nUser-Agent: OfflineFixture\r\n\r\n')]
     with path.open('wb') as stream:
         stream.write(struct.pack('<IHHIIII', 0xa1b2c3d4, 2, 4, 0, 0, 65535, 1))
         for i, data in enumerate(packets):
@@ -63,11 +64,13 @@ def main():
     unknown = re.search(r'UDP 192\.0\.2\.10:41003 -> 198\.51\.100\.20:443 .*?\[proto: 0/Unknown\].*?\[Confidence: Unknown\]', result.stdout)
     if not unknown:
         raise RuntimeError('opaque flow missing from Unknown report')
-    if len(rows) not in (2, 3) or 'Using nDPI (4.2.0)' not in result.stdout:
+    if by_port.get(41004) != 'HTTP.YouTube':
+        raise RuntimeError('synthetic YouTube service classification failed: ' + str(by_port.get(41004)))
+    if len(rows) not in (3, 4) or 'Using nDPI (4.2.0)' not in result.stdout:
         raise RuntimeError('unexpected reader version or export schema')
     report = {'readerVersion': '4.2.0', 'packageVersion': '4.2-2.1build1',
               'guessDisabled': True, 'input': 'synthetic PCAP only',
-              'checks': {'http': True, 'dns': True, 'opaqueUdp443Unknown': True},
+              'checks': {'http': True, 'dns': True, 'opaqueUdp443Unknown': True, 'youtubeHttp': True},
               'csvRows': len(rows), 'unknownExportedToCsv': 41003 in by_port,
               'productionCapture': False}
     (args.directory / 'report.json').write_text(json.dumps(report, indent=2) + '\n')

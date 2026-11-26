@@ -41,10 +41,10 @@ func TestNDPI42ActualOfflineExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows, err := parseNDPI42CSV(string(data), dpiTestCapture())
-	if err != nil || len(rows) != 3 {
+	if err != nil || len(rows) != 4 {
 		t.Fatal("incomplete fixture export", len(rows), err)
 	}
-	expected := map[int]string{41001: "HTTP", 41002: "DNS", 41003: "Unknown"}
+	expected := map[int]string{41001: "HTTP", 41002: "DNS", 41003: "Unknown", 41004: "HTTP.YouTube"}
 	for _, row := range rows {
 		if expected[row.Flow.SourcePort] != row.Flow.Application {
 			t.Fatal("unexpected fixture classification")
