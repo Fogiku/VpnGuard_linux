@@ -376,14 +376,21 @@ func (m *zapret2) Actions() []Action {
 	for _, preset := range builtinZapretStrategies() {
 		presets = append(presets, Opt{preset.Name, preset.Name})
 	}
-	return []Action{{ID: "trial", Title: "Испытать запуск профиля", Args: []Field{{Key: "preset", Title: "Встроенный профиль", Type: "select", Value: presets[0].V, Options: presets, Help: "Проверка запуска nfqws2 в отдельной сети Linux без клиентского трафика."}}}, {ID: "pick", Title: "Подобрать стратегию", Confirm: "Во время подбора YouTube и Discord могут не открываться. Начать?"},
+	return []Action{
+		{ID: "trial", Title: "Испытать запуск профиля", Args: []Field{
+			{Key: "preset", Title: "Встроенный профиль", Type: "select", Value: presets[0].V, Options: presets,
+				Help: "Испытание проходит в отдельной сети Linux."},
+			{Key: "mode", Title: "Что проверить", Type: "select", Value: "http",
+				Options: []Opt{{"http", "Запуск и локальный HTTP-обмен"}, {"startup", "Только запуск"}}},
+		}},
+		{ID: "pick", Title: "Подобрать стратегию", Confirm: "Во время подбора YouTube и Discord могут не открываться. Начать?"},
 		{ID: "check", Title: "Проверить сайты сейчас"},
 		{ID: "add", Title: "Добавить стратегию", Args: []Field{{Key: "name", Title: "Название", Type: "text"}, {Key: "args", Title: "Параметры nfqws2", Type: "textarea"}}},
 		{ID: "restart", Title: "Перезапустить nfqws2"}}
 }
 func (m *zapret2) Do(id string, a map[string]string) (string, error) {
 	if id == "trial" {
-		return trialZapretPreset(a["preset"])
+		return trialZapretPreset(a["preset"], a["mode"])
 	}
 	m.load()
 	i := m.index(a["row"])

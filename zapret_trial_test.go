@@ -65,14 +65,14 @@ func TestZapretTrialLinux(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	for _, p := range builtinZapretStrategies() {
-		msg, err := trialZapretPreset(p.Name)
-		if err != nil || !ownsQueue() {
+		msg, err := trialZapretPreset(p.Name, "http")
+		if err != nil || !strings.Contains(msg, "оба контрольных HTTP-ответа") || !ownsQueue() {
 			t.Fatal(msg, err)
 		}
 		t.Log(msg)
 	}
 	// A candidate that fails to parse must release its namespace without touching the baseline.
-	out, code := S.Run(12*time.Second, "", "unshare", "--net", "--pid", "--fork", "--kill-child=KILL", "--mount-proc", "--", "python3", "-I", "-c", zapretTrialWorker, current, "--qnum=200", "--lua-init=@lua/missing-test-script.lua")
+	out, code := S.Run(12*time.Second, "", "unshare", "--net", "--pid", "--fork", "--kill-child=KILL", "--mount-proc", "--", "python3", "-I", "-c", zapretTrialWorker, current, "startup", "--qnum=200", "--lua-init=@lua/missing-test-script.lua")
 	if code == 0 || !strings.Contains(out, "до готовности") || !ownsQueue() {
 		t.Fatalf("failed candidate: %d %s", code, out)
 	}
