@@ -11,7 +11,6 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
@@ -298,7 +297,7 @@ func startWeb(listen string) error {
 		return inboundOlc.clientConfig(str(b, "name"))
 	})
 	api("zapret-draft", true, func(b map[string]json.RawMessage) (any, error) {
-		return generateZapretDraft(str(b, "base"), str(b, "scenario"), str(b, "symptom"), os.Getenv("VPNGUARD_ZAPRET_MODEL"), "http://127.0.0.1:11434/api/chat")
+		return generateZapretDraft(str(b, "base"), str(b, "scenario"), str(b, "symptom"), aiModel(), "http://127.0.0.1:11434/api/chat")
 	})
 	api("zapret-draft-trial", true, func(b map[string]json.RawMessage) (any, error) {
 		var steps []string

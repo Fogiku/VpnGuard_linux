@@ -386,7 +386,16 @@ func (m *zapret2) Actions() []Action {
 	for _, preset := range builtinZapretStrategies() {
 		presets = append(presets, Opt{preset.Name, preset.Name})
 	}
+	selectedModel := localModels[0].V
+	configured := aiModel()
+	for _, opt := range localModels {
+		if opt.V == configured {
+			selectedModel = configured
+			break
+		}
+	}
 	return []Action{
+		{ID: "ai-setup", Title: "Настроить локальный ИИ", Confirm: "При необходимости будут загружены Ollama и выбранная модель. Загрузка может занять несколько гигабайт.", Args: []Field{{Key: "model", Title: "Модель", Type: "select", Value: selectedModel, Options: localModels}}},
 		{ID: "ai-draft", Title: "Создать стратегию с ИИ", Args: []Field{
 			{Key: "base", Title: "Исходная стратегия", Type: "select", Value: presets[0].V, Options: presets},
 			{Key: "scenario", Title: "Что проверить", Type: "select", Value: "youtube", Options: []Opt{{"youtube", "Воспроизведение YouTube"}, {"discord", "Соединение Discord Gateway"}}},
@@ -404,6 +413,9 @@ func (m *zapret2) Actions() []Action {
 		{ID: "restart", Title: "Перезапустить nfqws2"}}
 }
 func (m *zapret2) Do(id string, a map[string]string) (string, error) {
+	if id == "ai-setup" {
+		return setupLocalAI(a["model"])
+	}
 	if id == "trial" {
 		return trialZapretPreset(a["preset"], a["mode"])
 	}
@@ -466,7 +478,7 @@ func (m *zapret2) Tables() []Table {
 	return []Table{{Title: "Проверка сайтов", Cols: []string{"Проверка", "Результат", "Подробности"}, Rows: sites, Empty: "Проверка ещё не выполнялась", Note: "HTTP 403/404 у корня сайта означает, что сервер ответил. Gateway проверяется по HTTPS. Скорость — загрузка JS плеера, как в Windows; воспроизведение ролика, WebSocket и голос Discord здесь не проверяются."},
 		{Title: "История проверок шлюза", Cols: []string{"Время UTC", "Результат"}, Rows: history, Empty: "Нет завершённых проверок", Note: "Последние 16 попыток с момента запуска агента. Ошибка подготовки сохраняется отдельно от результата запросов."},
 		{Title: "Стратегии", Cols: []string{"Название", "Параметры nfqws2", "Последний подбор", "Состояние"}, Rows: rows,
-			Actions: []Action{{ID: "select", Title: "Выбрать"}, {ID: "delete", Title: "Удалить", Danger: true, Confirm: "Удалить стратегию?"}}}}
+			Actions: []Action{{ID: "select", Title: "Выбрать"}, {ID: "delete", Title: "Удалить", Danger: true, Confirm: "Удалить стратегию?"}}}, aiSetupTable()}
 }
 func (m *zapret2) Checks() []Check {
 	return []Check{

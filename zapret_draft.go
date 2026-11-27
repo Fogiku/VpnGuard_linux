@@ -62,7 +62,7 @@ func generateZapretDraft(base, scenario, symptom, model, endpoint string) (zapre
 	}
 	model = strings.TrimSpace(model)
 	if model == "" {
-		return draft, errors.New("задайте VPNGUARD_ZAPRET_MODEL для службы VpnGuard и установите эту модель в локальном Ollama")
+		return draft, errors.New("выберите «Настроить локальный ИИ» и дождитесь загрузки модели")
 	}
 	if strings.HasSuffix(strings.ToLower(model), ":cloud") || strings.HasSuffix(strings.ToLower(model), "-cloud") {
 		return draft, errors.New("выберите локально установленную модель Ollama")
