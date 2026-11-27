@@ -20,7 +20,14 @@ type zapretProposal struct {
 	Steps  []string `json:"steps"`
 	Reason string   `json:"reason"`
 }
+type draftTrial struct {
+	Finished string `json:"finished"`
+	Outcome  string `json:"outcome"`
+	Detail   string `json:"detail"`
+}
+
 type zapretDraft struct {
+	Trial *draftTrial `json:"trial,omitempty"`
 	zapretProposal
 	Base     string `json:"base,omitempty"`
 	Scenario string `json:"scenario,omitempty"`
@@ -50,6 +57,46 @@ func readLatestDraft() (zapretDraft, error) {
 		return zapretDraft{}, errors.New("Содержимое черновика не соответствует сохранённой ревизии")
 	}
 	return draft, nil
+}
+
+func testSavedDraft(revision string) (draftTrial, error) {
+	var trial draftTrial
+	if !draftRequest.TryLock() {
+		return trial, errors.New("черновик занят, повторите проверку позже")
+	}
+	defer draftRequest.Unlock()
+	draft, err := readLatestDraft()
+	if err != nil {
+		return trial, err
+	}
+	if revision != draft.SHA256 {
+		return trial, errors.New("черновик изменился, откройте последнюю ревизию")
+	}
+	message, err := trialZapretArgs("ИИ-черновик", draft.Args, "http")
+	if errors.Is(err, errZapretTrialBusy) {
+		return trial, err
+	}
+	trial.Finished = time.Now().UTC().Format(time.RFC3339)
+	switch {
+	case err != nil:
+		trial.Outcome = "failed"
+		detail := []rune(err.Error())
+		if len(detail) > 1024 {
+			detail = append(detail[:1024], '…')
+		}
+		trial.Detail = string(detail)
+	case Sim:
+		trial.Outcome = "simulated"
+		trial.Detail = message
+	default:
+		trial.Outcome = "passed"
+		trial.Detail = message
+	}
+	draft.Trial = &trial
+	if err := saveJSON(latestDraftFile, draft); err != nil {
+		return trial, fmt.Errorf("не удалось сохранить результат проверки: %w", err)
+	}
+	return trial, nil
 }
 
 func draftHash(args string) string {
@@ -99,7 +146,7 @@ func generateZapretDraft(base, scenario, symptom, model, endpoint string) (zapre
 		return draft, errors.New("выберите локально установленную модель Ollama")
 	}
 	if !draftRequest.TryLock() {
-		return draft, errors.New("модель уже готовит черновик")
+		return draft, errors.New("черновик занят, повторите генерацию позже")
 	}
 	defer draftRequest.Unlock()
 	input, _ := json.Marshal(map[string]any{"baseline": base, "scenario": scenario, "device_observation": symptom, "diagnostics": readDiagnosticSnapshotV1()})

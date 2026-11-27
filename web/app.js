@@ -39,10 +39,15 @@ function fieldHtml(f, id) {
 }
 // действие модуля: подтверждение и/или форма с аргументами, затем запрос
 function showZapretDraft(draft) {
+  const trialText = trial => {
+    if (!trial) return 'Локальная HTTP-проверка ещё не выполнялась.';
+    const outcome = {passed:'Проверка прошла', failed:'Ошибка проверки', simulated:'Симуляция'}[trial.outcome] || 'Неизвестный результат';
+    return trial.finished + ' · ' + outcome + '. ' + trial.detail;
+  };
   modal(`<div class="sec">${draft.status === 'draft' ? 'Черновик стратегии zapret2' : 'Нужно измерение'}</div>
     <p>${esc(draft.reason)}</p>${draft.status === 'draft' ? `<p class="sub">${esc(draft.created)} · ${esc(draft.model)} · ${esc(draft.scenario)} · профиль ${esc(draft.base)}</p><label>Исходные параметры</label><pre>${esc(draft.original)}</pre>
     <label>Предложенные параметры</label><pre>${esc(draft.args)}</pre><p>SHA-256 ${esc(draft.sha256)}</p>
-    <button id="draft-test">Испытать локально</button><button id="draft-save">Скачать черновик</button><p id="draft-result" role="status"></p>` : ''}
+    <button id="draft-test">Испытать локально</button><button id="draft-save">Скачать черновик</button><p id="draft-result" role="status">${esc(trialText(draft.trial))}</p>` : ''}
     <button id="draft-close">Закрыть</button>`);
   $('draft-close').onclick = closeModal;
   if (draft.status === 'draft') {
@@ -55,8 +60,9 @@ function showZapretDraft(draft) {
     $('draft-test').onclick = async () => {
       const button = $('draft-test'), result = $('draft-result');
       button.disabled = true; result.textContent = 'Проверка…';
-      const message = await post('zapret-draft-trial', {steps:draft.steps}, true);
-      result.textContent = message || $('toast').textContent; button.disabled = false;
+      const trial = await post('zapret-draft-test-saved', {sha256:draft.sha256}, true);
+      if (trial) draft.trial = trial;
+      result.textContent = trialText(draft.trial); button.disabled = false;
     };
   }
 }

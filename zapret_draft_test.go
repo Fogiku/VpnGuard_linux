@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestZapretDraftProvider(t *testing.T) {
@@ -59,12 +60,67 @@ func TestZapretDraftProvider(t *testing.T) {
 	if err != nil || saved.SHA256 != revision || saved.Base != "fake" || saved.Model != "lab" || saved.Scenario != "youtube" || saved.Created == "" {
 		t.Fatalf("latest draft after failed proposals: %+v, %v", saved, err)
 	}
+	if _, err := testSavedDraft("obsolete"); err == nil {
+		t.Fatal("accepted stale revision")
+	}
+	trial, err := testSavedDraft(revision)
+	if err != nil || trial.Outcome != "simulated" || trial.Finished == "" {
+		t.Fatal(trial, err)
+	}
+	saved, err = readLatestDraft()
+	if err != nil || saved.Trial == nil || *saved.Trial != trial {
+		t.Fatal(saved.Trial, err)
+	}
 	saved.Args += " corrupted"
 	if err := saveJSON(latestDraftFile, saved); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := readLatestDraft(); err == nil {
 		t.Fatal("accepted corrupt revision")
+	}
+}
+
+type draftTrialSys struct {
+	Sys
+	output string
+	code   int
+}
+
+func (sys draftTrialSys) Run(_ time.Duration, _, name string, args ...string) (string, int) {
+	if name != "unshare" {
+		return "unexpected command", 1
+	}
+	return sys.output, sys.code
+}
+
+func TestSavedDraftTrialOutcomes(t *testing.T) {
+	sim := setup(t)
+	args, err := compileDraftSteps([]string{"multisplit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft := zapretDraft{zapretProposal: zapretProposal{Status: "draft", Steps: []string{"multisplit"}}, Args: args, SHA256: draftHash(args)}
+	if err := saveJSON(latestDraftFile, draft); err != nil {
+		t.Fatal(err)
+	}
+	Sim = false
+	defer func() { Sim = true; S = sim }()
+	for _, tc := range []struct {
+		output  string
+		code    int
+		outcome string
+	}{
+		{"http 7", 0, "passed"}, {"http 0", 0, "failed"}, {"unavailable", 1, "failed"},
+	} {
+		S = draftTrialSys{sim, tc.output, tc.code}
+		trial, err := testSavedDraft(draft.SHA256)
+		if err != nil || trial.Outcome != tc.outcome {
+			t.Fatal(trial, err)
+		}
+		stored, err := readLatestDraft()
+		if err != nil || stored.Trial == nil || *stored.Trial != trial {
+			t.Fatal(stored.Trial, err)
+		}
 	}
 }
 

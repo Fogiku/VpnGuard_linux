@@ -300,6 +300,7 @@ func startWeb(listen string) error {
 	api("zapret-draft", true, func(b map[string]json.RawMessage) (any, error) {
 		return generateZapretDraft(str(b, "base"), str(b, "scenario"), str(b, "symptom"), aiModel(), "http://127.0.0.1:11434/api/chat")
 	})
+	api("zapret-draft-test-saved", true, func(b map[string]json.RawMessage) (any, error) { return testSavedDraft(str(b, "sha256")) })
 	api("zapret-draft-trial", true, func(b map[string]json.RawMessage) (any, error) {
 		var steps []string
 		if err := json.Unmarshal(b["steps"], &steps); err != nil {

@@ -15,6 +15,7 @@ import (
 //go:embed deploy/zapret_trial.py
 var zapretTrialWorker string
 var zapretTrialMu sync.Mutex
+var errZapretTrialBusy = errors.New("испытательный запуск уже выполняется")
 
 func trialZapretPreset(name, mode string) (string, error) {
 	var args string
@@ -42,7 +43,7 @@ func trialZapretArgs(name, args, mode string) (string, error) {
 		return fmt.Sprintf("Симулятор: профиль «%s», SHA-256 %s. Запуск доступен на шлюзе Linux.", name, revision), nil
 	}
 	if !zapretTrialMu.TryLock() {
-		return "", errors.New("испытательный запуск уже выполняется")
+		return "", errZapretTrialBusy
 	}
 	defer zapretTrialMu.Unlock()
 	parent, err := os.Readlink("/proc/self/ns/net")
