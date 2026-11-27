@@ -95,27 +95,11 @@ python deploy/probe_client_path.py --gateway vpnguard --host example.org
 На одном испытательном Linux-хосте подготовьте два сетевых пространства с разрешёнными выходами и нужными профилями. Установите Playwright и Chromium для обычного пользователя. Пример для Bash запускает одинаковые пробы одновременно. Подставьте пути к файлам двух испытательных профилей вместо `/path/to/base.conf` и `/path/to/candidate.conf`. При работе из виртуального окружения `command -v python3` должен указывать на его интерпретатор.
 
 ```bash
-(
-  set -eu
-  session="lab-$(date -u +%Y%m%dT%H%M%SZ)"
-  mkdir "$session"
-  probe=( "$(command -v python3)" "$PWD/deploy/probe_client_playback.py"
-          --lab-session "$session" --video-id jNQXAC9IVRw --discord
-          --control https://example.org/ --runs 3 )
-  sudo -v
-  sudo -n ip netns exec vg-base sudo -H -u "$(id -un)" -- "${probe[@]}" \
-    --path-label vg-base --profile-file /path/to/base.conf > "$session/base.json" &
-  base_pid=$!
-  sudo -n ip netns exec vg-candidate sudo -H -u "$(id -un)" -- "${probe[@]}" \
-    --path-label vg-candidate --profile-file /path/to/candidate.conf > "$session/candidate.json" &
-  candidate_pid=$!
-  wait "$base_pid"
-  wait "$candidate_pid"
-  python3 deploy/compare_client_profiles.py "$session/base.json" "$session/candidate.json"
-)
+deploy/run_client_comparison.sh vg-base /path/to/base.conf vg-candidate /path/to/candidate.conf \
+  --video-id jNQXAC9IVRw --discord --control https://example.org/ --runs 3
 ```
 
-Для просмотра сравнения в VpnGuard 1.9.57 скачайте исходный профиль и черновик из одного окна zapret2. Используйте эти файлы в двух сериях. Сохраните вывод `compare_client_profiles.py base.json candidate.json > comparison.json` и выберите `comparison.json` в окне этого черновика. Панель показывает время и результат обеих проб приложения. Файл открывается в браузере и доступен до закрытия окна.
+Для просмотра сравнения в VpnGuard 1.9.57 скачайте исходный профиль и черновик из одного окна zapret2. Используйте эти файлы в двух сериях. Скрипт запускает обе серии параллельно, сохраняет исходные JSON в новом каталоге и печатает путь к готовому отчёту. Выберите этот файл в окне этого черновика. Панель показывает время и результат обеих проб приложения. Файл открывается в браузере и доступен до закрытия окна.
 
 В режиме файловых ревизий передайте `--profile-file /path/to/profile.conf` вместо `--profile-revision` с обеих сторон. Укажите файл с полным содержимым испытательного профиля. Клиент вычисляет SHA-256 до и после серии. Если значения отличаются, отчёт не записывается. Хеш охватывает только байты указанного файла. Соответствие работающего экземпляра этому профилю проверяет оператор.
 
