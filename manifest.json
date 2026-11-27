@@ -1,15 +1,15 @@
 {
-  "version": "1.9.53",
-  "source": "a8767e022b158f45e7a642d953a23a4e22399d23",
+  "version": "1.9.54",
+  "source": "4231f21b2c6d2430982489d7b698e6d95ac280fd",
   "sha256": {
-    "amd64": "2ed5307e2720684ae727c2a4f4cf8d8de82466f1127dd42b4ec5e1170d7ca532",
-    "arm64": "16e47552f9166984d576bd19ab75123f4f00f13c36afe485ff2438cae3fbb01c"
+    "amd64": "6728113d3f6ece648b5789cfff34b60c51c80c232d9cc20d52d6ff10ed19bb17",
+    "arm64": "761cbc7ba55ab027c4d6636c7830bab9fba9108ae877a1c98db15f949f24bae9"
   },
   "helpers": {
     "guarded_update.py": "6f318ca0f14789d5efcbf6a85b9712c55c240423ba4d5cf2cc760f985ccf43f9",
     "route_guard.py": "bda39fa92512ae004fe671178e02ecd014b64e9edc2b39b1824ecff05550afcf"
   },
   "changes": [
-    "В zapret2 появилась ручная генерация черновика через локальный Ollama. В панели доступны исходные и предложенные параметры, объяснение, скачивание файла и изолированная проверка."
+    "В zapret2 можно установить локальную Ollama, выбрать модель Qwen 2.5 и следить за загрузкой прямо из веб-интерфейса."
   ]
 }
