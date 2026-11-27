@@ -56,7 +56,38 @@ function draftComparison(report, draft) {
   const outcomes = new Map([['both_observed','Оба профиля прошли проверку'], ['only_first_observed','Проверку прошёл только исходный профиль'],
     ['only_second_observed','Проверку прошёл только черновик'], ['both_failed','Сбой на обоих профилях'], ['inconclusive','Результат неопределён']]);
   if (!outcomes.has(series.outcome)) throw new Error('Неизвестный итог сравнения.');
-  return `<p>${esc(service === 'youtube' ? 'YouTube' : 'Discord Gateway')} · ${outcomes.get(series.outcome)}</p><table><thead><tr><th>Исходный профиль</th><th>Черновик</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  const reasons = [];
+  const states = series.pairs.map(pair => pair.states.join('/'));
+  const profiles = [0, 1];
+  const counts = profiles.map(i => Object.fromEntries([...labels.keys()].map(state =>
+    [state, series.pairs.filter(pair => pair.states[i] === state).length])));
+  if (!Array.isArray(series.sample_counts) || series.sample_counts.length !== 2 ||
+      counts.some((profile, i) => Object.entries(profile).some(([state, n]) => series.sample_counts[i]?.[state] !== n)))
+    throw new Error('Счётчики отчёта не совпадают с результатами отдельных проб.');
+  if (counts.some(profile => profile.control_inconclusive)) reasons.push('В одной или нескольких пробах не прошёл HTTPS-контроль.');
+  if (counts.some(profile => profile.inconclusive)) reasons.push('В одной или нескольких пробах недостаточно данных о приложении.');
+  if (new Set(states).size > 1) reasons.push('Пары измерений дали разные результаты.');
+  const families = Object.keys(series.pairs[0].egress?.[0] || {}).sort();
+  let exitMismatch = false;
+  for (const pair of series.pairs) {
+    if (families.length === 0 && pair.egress === undefined) continue;
+    if (!families.length || !families.every(f => f === 'v4' || f === 'v6') ||
+        !Array.isArray(pair.egress) || pair.egress.length !== 2)
+      throw new Error('Некорректный набор проверок выхода.');
+    for (const checks of pair.egress) {
+      if (!checks || Object.keys(checks).length !== families.length ||
+          !families.every(f => typeof checks[f]?.status === 'string' && checks[f].status))
+        throw new Error('В отчёте отсутствуют проверки выхода для части проб.');
+      if (families.some(f => checks[f].status !== 'matched')) exitMismatch = true;
+    }
+  }
+  if (exitMismatch) reasons.push('Проверка ожидаемого сетевого выхода не прошла.');
+  const expected = new Map([['observed/observed','both_observed'], ['failure/failure','both_failed'],
+    ['observed/failure','only_first_observed'], ['failure/observed','only_second_observed']]);
+  const derived = reasons.length ? 'inconclusive' : expected.get(states[0]);
+  if (series.outcome !== derived) throw new Error('Итог отчёта противоречит результатам отдельных проб.');
+  const details = reasons.map(reason => `<p>${reason}</p>`).join('');
+  return `<p>${esc(service === 'youtube' ? 'YouTube' : 'Discord Gateway')} · ${outcomes.get(series.outcome)}</p>${details}<table><thead><tr><th>Исходный профиль</th><th>Черновик</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
 }
 
 // действие модуля: подтверждение и/или форма с аргументами, затем запрос
