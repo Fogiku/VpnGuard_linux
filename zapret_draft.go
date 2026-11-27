@@ -29,13 +29,14 @@ type draftTrial struct {
 type zapretDraft struct {
 	Trial *draftTrial `json:"trial,omitempty"`
 	zapretProposal
-	Base     string `json:"base,omitempty"`
-	Scenario string `json:"scenario,omitempty"`
-	Model    string `json:"model,omitempty"`
-	Created  string `json:"created,omitempty"`
-	Original string `json:"original"`
-	Args     string `json:"args,omitempty"`
-	SHA256   string `json:"sha256,omitempty"`
+	Base       string `json:"base,omitempty"`
+	Scenario   string `json:"scenario,omitempty"`
+	Model      string `json:"model,omitempty"`
+	Created    string `json:"created,omitempty"`
+	BaseSHA256 string `json:"baseSha256,omitempty"`
+	Original   string `json:"original"`
+	Args       string `json:"args,omitempty"`
+	SHA256     string `json:"sha256,omitempty"`
 }
 
 const latestDraftFile = "zapret-draft.json"
@@ -56,6 +57,7 @@ func readLatestDraft() (zapretDraft, error) {
 	if err != nil || draft.Status != "draft" || draft.Args != args || draft.SHA256 != draftHash(args) {
 		return zapretDraft{}, errors.New("Содержимое черновика не соответствует сохранённой ревизии")
 	}
+	draft.BaseSHA256 = draftHash(draft.Original)
 	return draft, nil
 }
 
@@ -190,6 +192,7 @@ func generateZapretDraft(base, scenario, symptom, model, endpoint string) (zapre
 	}
 	draft.Args = args
 	draft.SHA256 = draftHash(args)
+	draft.BaseSHA256 = draftHash(draft.Original)
 	draft.Base, draft.Model, draft.Scenario = base, model, scenario
 	draft.Created = time.Now().UTC().Format(time.RFC3339)
 	if err := saveJSON(latestDraftFile, draft); err != nil {

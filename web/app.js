@@ -37,6 +37,28 @@ function fieldHtml(f, id) {
     : `<input type="text" id="${id}" value="${esc(v)}"${f.type === 'number' ? ' inputmode="numeric"' : ''}>`;
   return `<div class="field"><label for="${id}">${esc(f.title)}</label>${ctl}${f.help ? `<span class="help">${esc(f.help)}</span>` : ''}</div>`;
 }
+function draftComparison(report, draft) {
+  if (report?.schema !== 1 || report.source !== 'paired_client_browser' || report.profile_source !== 'file_sha256')
+    throw new Error('Выберите JSON-отчёт compare_client_profiles.py с файловыми ревизиями.');
+  if (report.profiles?.length !== 2 || report.profiles[0] !== draft.baseSha256 || report.profiles[1] !== draft.sha256)
+    throw new Error('Ревизии отчёта не совпадают с исходным профилем и черновиком в указанном порядке.');
+  const service = draft.scenario === 'discord' ? 'discord_gateway' : draft.scenario;
+  const series = report.comparison?.[service];
+  if (!Array.isArray(series?.pairs) || series.pairs.length < 2 || series.pairs.length > 5)
+    throw new Error('В отчёте нет парной серии для этого приложения.');
+  const labels = new Map([['observed','Успех'], ['failure','Сбой'], ['control_inconclusive','Не прошёл HTTPS-контроль'], ['inconclusive','Недостаточно данных']]);
+  const rows = series.pairs.map(pair => {
+    if (!Array.isArray(pair?.states) || pair.states.length !== 2 || !pair.states.every(s => labels.has(s)) ||
+        !Array.isArray(pair.utc) || pair.utc.length !== 2 || !pair.utc.every(t => typeof t === 'string' && Number.isFinite(Date.parse(t))))
+      throw new Error('Некорректная пара измерений в отчёте.');
+    return '<tr>' + pair.states.map((state, i) => `<td>${esc(pair.utc[i])}<br>${labels.get(state)}</td>`).join('') + '</tr>';
+  });
+  const outcomes = new Map([['both_observed','Оба профиля прошли проверку'], ['only_first_observed','Проверку прошёл только исходный профиль'],
+    ['only_second_observed','Проверку прошёл только черновик'], ['both_failed','Сбой на обоих профилях'], ['inconclusive','Результат неопределён']]);
+  if (!outcomes.has(series.outcome)) throw new Error('Неизвестный итог сравнения.');
+  return `<p>${esc(service === 'youtube' ? 'YouTube' : 'Discord Gateway')} · ${outcomes.get(series.outcome)}</p><table><thead><tr><th>Исходный профиль</th><th>Черновик</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+}
+
 // действие модуля: подтверждение и/или форма с аргументами, затем запрос
 function showZapretDraft(draft) {
   const trialText = trial => {
@@ -47,15 +69,30 @@ function showZapretDraft(draft) {
   modal(`<div class="sec">${draft.status === 'draft' ? 'Черновик стратегии zapret2' : 'Нужно измерение'}</div>
     <p>${esc(draft.reason)}</p>${draft.status === 'draft' ? `<p class="sub">${esc(draft.created)} · ${esc(draft.model)} · ${esc(draft.scenario)} · профиль ${esc(draft.base)}</p><label>Исходные параметры</label><pre>${esc(draft.original)}</pre>
     <label>Предложенные параметры</label><pre>${esc(draft.args)}</pre><p>SHA-256 ${esc(draft.sha256)}</p>
-    <button id="draft-test">Испытать локально</button><button id="draft-save">Скачать черновик</button><p id="draft-result" role="status">${esc(trialText(draft.trial))}</p>` : ''}
+    <button id="draft-test">Испытать локально</button><button id="draft-save">Скачать черновик</button><button id="draft-base">Скачать исходный профиль</button><p id="draft-result" role="status">${esc(trialText(draft.trial))}</p>
+    <label for="draft-comparison">Парный отчёт compare_client_profiles.py (JSON)</label><input type="file" id="draft-comparison" accept=".json,application/json"><div id="draft-pairs" role="status"></div>` : ''}
     <button id="draft-close">Закрыть</button>`);
   $('draft-close').onclick = closeModal;
   if (draft.status === 'draft') {
-    $('draft-save').onclick = () => {
+    const downloadProfile = (args, hash) => {
       const link = document.createElement('a');
-      link.href = URL.createObjectURL(new Blob([draft.args + '\n'], {type:'text/plain'}));
-      link.download = 'zapret-' + draft.sha256.slice(0,12) + '.args';
+      link.href = URL.createObjectURL(new Blob([args + '\n'], {type:'text/plain'}));
+      link.download = 'zapret-' + hash.slice(0,12) + '.args';
       link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+    };
+    $('draft-save').onclick = () => downloadProfile(draft.args, draft.sha256);
+    $('draft-base').onclick = () => downloadProfile(draft.original, draft.baseSha256);
+    $('draft-comparison').onchange = async event => {
+      const input = event.target, file = input.files[0], result = $('draft-pairs');
+      result.textContent = '';
+      if (!file) return;
+      try {
+        if (file.size > 1024 * 1024) throw new Error('Размер отчёта превышает 1 МиБ.');
+        const report = JSON.parse(await file.text());
+        if (input.files[0] === file) result.innerHTML = draftComparison(report, draft);
+      } catch (err) {
+        if (input.files[0] === file) result.textContent = err instanceof SyntaxError ? 'Не удалось прочитать JSON.' : err.message;
+      }
     };
     $('draft-test').onclick = async () => {
       const button = $('draft-test'), result = $('draft-result');
