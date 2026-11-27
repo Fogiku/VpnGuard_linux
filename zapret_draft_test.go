@@ -40,6 +40,7 @@ func TestZapretDraftProvider(t *testing.T) {
 	if err != nil || draft.Args == draft.Original || !strings.HasSuffix(draft.Args, zapretStepArgs["multisplit"]) || draft.SHA256 != fmt.Sprintf("%x", sha256.Sum256([]byte(draft.Args+"\n"))) {
 		t.Fatal(draft, err)
 	}
+	revision := draft.SHA256
 	for _, steps := range [][]string{nil, {"--lua-init=@/tmp/script"}, {"fake", "fake"}, {"fake"}, {"fake", "multisplit"}} {
 		proposal.Steps = steps
 		if _, err = gen(); err == nil {
@@ -53,6 +54,17 @@ func TestZapretDraftProvider(t *testing.T) {
 	before := calls
 	if draft, err = generateZapretDraft("fake", "discord", "unknown", "lab", provider.URL); err != nil || draft.Status != "need_data" || before != calls {
 		t.Fatal(draft, err)
+	}
+	saved, err := readLatestDraft()
+	if err != nil || saved.SHA256 != revision || saved.Base != "fake" || saved.Model != "lab" || saved.Scenario != "youtube" || saved.Created == "" {
+		t.Fatalf("latest draft after failed proposals: %+v, %v", saved, err)
+	}
+	saved.Args += " corrupted"
+	if err := saveJSON(latestDraftFile, saved); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readLatestDraft(); err == nil {
+		t.Fatal("accepted corrupt revision")
 	}
 }
 

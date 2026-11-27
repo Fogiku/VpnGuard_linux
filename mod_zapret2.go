@@ -401,6 +401,7 @@ func (m *zapret2) Actions() []Action {
 			{Key: "scenario", Title: "Что проверить", Type: "select", Value: "youtube", Options: []Opt{{"youtube", "Воспроизведение YouTube"}, {"discord", "Соединение Discord Gateway"}}},
 			{Key: "symptom", Title: "Наблюдение на устройстве", Type: "select", Value: "unknown", Options: []Opt{{"unknown", "Пока нет измерения"}, {"failed", "Приложение не работает, HTTPS-контроль проходит"}, {"intermittent", "Приложение периодически прерывается, HTTPS-контроль проходит"}}},
 		}},
+		{ID: "ai-draft-latest", Title: "Открыть последний черновик ИИ"},
 		{ID: "trial", Title: "Испытать запуск профиля", Args: []Field{
 			{Key: "preset", Title: "Встроенный профиль", Type: "select", Value: presets[0].V, Options: presets,
 				Help: "Испытание проходит в отдельной сети Linux."},

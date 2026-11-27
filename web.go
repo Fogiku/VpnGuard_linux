@@ -296,6 +296,7 @@ func startWeb(listen string) error {
 		}
 		return inboundOlc.clientConfig(str(b, "name"))
 	})
+	api("zapret-draft-latest", false, func(map[string]json.RawMessage) (any, error) { return readLatestDraft() })
 	api("zapret-draft", true, func(b map[string]json.RawMessage) (any, error) {
 		return generateZapretDraft(str(b, "base"), str(b, "scenario"), str(b, "symptom"), aiModel(), "http://127.0.0.1:11434/api/chat")
 	})

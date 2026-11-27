@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -20,9 +22,38 @@ type zapretProposal struct {
 }
 type zapretDraft struct {
 	zapretProposal
+	Base     string `json:"base,omitempty"`
+	Scenario string `json:"scenario,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Created  string `json:"created,omitempty"`
 	Original string `json:"original"`
 	Args     string `json:"args,omitempty"`
 	SHA256   string `json:"sha256,omitempty"`
+}
+
+const latestDraftFile = "zapret-draft.json"
+
+func readLatestDraft() (zapretDraft, error) {
+	var draft zapretDraft
+	data, err := os.ReadFile(filepath.Join(DataDir, latestDraftFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return draft, errors.New("Сохранённого черновика пока нет")
+	}
+	if err != nil {
+		return draft, err
+	}
+	if err := json.Unmarshal(data, &draft); err != nil {
+		return draft, errors.New("Не удалось прочитать сохранённый черновик")
+	}
+	args, err := compileDraftSteps(draft.Steps)
+	if err != nil || draft.Status != "draft" || draft.Args != args || draft.SHA256 != draftHash(args) {
+		return zapretDraft{}, errors.New("Содержимое черновика не соответствует сохранённой ревизии")
+	}
+	return draft, nil
+}
+
+func draftHash(args string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(args+"\n")))
 }
 
 func compileDraftSteps(steps []string) (string, error) {
@@ -111,6 +142,11 @@ func generateZapretDraft(base, scenario, symptom, model, endpoint string) (zapre
 		}
 	}
 	draft.Args = args
-	draft.SHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte(args+"\n")))
+	draft.SHA256 = draftHash(args)
+	draft.Base, draft.Model, draft.Scenario = base, model, scenario
+	draft.Created = time.Now().UTC().Format(time.RFC3339)
+	if err := saveJSON(latestDraftFile, draft); err != nil {
+		return draft, fmt.Errorf("не удалось сохранить черновик: %w", err)
+	}
 	return draft, nil
 }
