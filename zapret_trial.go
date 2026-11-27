@@ -17,12 +17,6 @@ var zapretTrialWorker string
 var zapretTrialMu sync.Mutex
 
 func trialZapretPreset(name, mode string) (string, error) {
-	if mode == "" {
-		mode = "startup"
-	}
-	if mode != "startup" && mode != "http" {
-		return "", errors.New("неизвестный режим испытания")
-	}
 	var args string
 	for _, p := range builtinZapretStrategies() {
 		if p.Name == name {
@@ -32,6 +26,16 @@ func trialZapretPreset(name, mode string) (string, error) {
 	}
 	if args == "" {
 		return "", errors.New("выберите встроенный профиль")
+	}
+	return trialZapretArgs(name, args, mode)
+}
+
+func trialZapretArgs(name, args, mode string) (string, error) {
+	if mode == "" {
+		mode = "startup"
+	}
+	if mode != "startup" && mode != "http" {
+		return "", errors.New("неизвестный режим испытания")
 	}
 	revision := fmt.Sprintf("%x", sha256.Sum256([]byte(args+"\n")))
 	if Sim {

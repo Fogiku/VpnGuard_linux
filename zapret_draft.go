@@ -1,0 +1,116 @@
+package main
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+)
+
+type zapretProposal struct {
+	Status string   `json:"status"`
+	Steps  []string `json:"steps"`
+	Reason string   `json:"reason"`
+}
+type zapretDraft struct {
+	zapretProposal
+	Original string `json:"original"`
+	Args     string `json:"args,omitempty"`
+	SHA256   string `json:"sha256,omitempty"`
+}
+
+func compileDraftSteps(steps []string) (string, error) {
+	if len(steps) == 0 || len(steps) > len(zapretStepArgs) {
+		return "", errors.New("неверное число шагов профиля")
+	}
+	args := []string{zapretBaseArgs}
+	seen := map[string]bool{}
+	for _, step := range steps {
+		arg, ok := zapretStepArgs[step]
+		if !ok || seen[step] {
+			return "", errors.New("неизвестный или повторный шаг профиля")
+		}
+		seen[step] = true
+		args = append(args, arg)
+	}
+	return strings.Join(args, " "), nil
+}
+
+var draftRequest sync.Mutex
+
+func generateZapretDraft(base, scenario, symptom, model, endpoint string) (zapretDraft, error) {
+	var draft zapretDraft
+	for _, p := range builtinZapretStrategies() {
+		if p.Name == base {
+			draft.Original = p.Args
+			break
+		}
+	}
+	if draft.Original == "" || (scenario != "youtube" && scenario != "discord") || (symptom != "unknown" && symptom != "failed" && symptom != "intermittent") {
+		return draft, errors.New("проверьте исходный профиль, сценарий и наблюдение")
+	}
+	if symptom == "unknown" {
+		draft.Status = "need_data"
+		draft.Reason = "Проверьте выбранное приложение и независимый HTTPS-сайт на одном устройстве."
+		return draft, nil
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return draft, errors.New("задайте VPNGUARD_ZAPRET_MODEL для службы VpnGuard и установите эту модель в локальном Ollama")
+	}
+	if strings.HasSuffix(strings.ToLower(model), ":cloud") || strings.HasSuffix(strings.ToLower(model), "-cloud") {
+		return draft, errors.New("выберите локально установленную модель Ollama")
+	}
+	if !draftRequest.TryLock() {
+		return draft, errors.New("модель уже готовит черновик")
+	}
+	defer draftRequest.Unlock()
+	input, _ := json.Marshal(map[string]any{"baseline": base, "scenario": scenario, "device_observation": symptom, "diagnostics": readDiagnosticSnapshotV1()})
+	const instruction = `Предложи один экспериментальный профиль для указанной проблемы. Верни JSON с полями status, steps и reason. Для status=draft составь новый упорядоченный список из шагов fake, multisplit, multidisorder, hostfakesplit, без повторов. Запрещено копировать готовые списки [fake], [fake,multisplit], [multidisorder], [hostfakesplit]. В reason кратко по-русски опиши гипотезу и что измерить на устройстве. Это гипотеза без измерения эффективности. Если данных мало, верни status=need_data, пустой steps и укажи недостающий замер.`
+	payload, _ := json.Marshal(map[string]any{"model": model, "stream": false, "format": "json", "keep_alive": "0s", "options": map[string]int{"num_ctx": 2048, "num_predict": 384, "num_thread": 2}, "messages": []map[string]string{{"role": "system", "content": instruction}, {"role": "user", "content": string(input)}}})
+	client := http.Client{Timeout: 2 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Post(endpoint, "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return draft, errors.New("локальный Ollama недоступен или истекло время ожидания")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return draft, fmt.Errorf("Ollama вернул HTTP %d; проверьте имя и наличие модели", resp.StatusCode)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16385))
+	var envelope struct {
+		Done    bool
+		Message struct{ Content string }
+	}
+	if err != nil || len(raw) > 16384 || json.Unmarshal(raw, &envelope) != nil || !envelope.Done || json.Unmarshal([]byte(envelope.Message.Content), &draft.zapretProposal) != nil {
+		return draft, errors.New("модель вернула неполный или некорректный JSON")
+	}
+	draft.Reason = strings.TrimSpace(draft.Reason)
+	if draft.Reason == "" || len(draft.Reason) > 2048 {
+		return draft, errors.New("модель не дала краткого обоснования")
+	}
+	if draft.Status == "need_data" && len(draft.Steps) == 0 {
+		return draft, nil
+	}
+	if draft.Status != "draft" {
+		return draft, errors.New("неверный статус черновика")
+	}
+	args, err := compileDraftSteps(draft.Steps)
+	if err != nil {
+		return draft, err
+	}
+	for _, p := range builtinZapretStrategies() {
+		if p.Args == args {
+			return draft, errors.New("модель повторила встроенный профиль; новый черновик не создан")
+		}
+	}
+	draft.Args = args
+	draft.SHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte(args+"\n")))
+	return draft, nil
+}

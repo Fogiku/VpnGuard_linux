@@ -44,13 +44,23 @@ func (m *zapret2) load() {
 		m.strat = builtinZapretStrategies()
 	}
 }
+
+const zapretBaseArgs = "--qnum=200 --lua-init=@lua/zapret-lib.lua --lua-init=@lua/zapret-antidpi.lua --payload=tls_client_hello"
+
+var zapretStepArgs = map[string]string{
+	"fake":          "--lua-desync=fake:blob=fake_default_tls:tcp_md5",
+	"multisplit":    "--lua-desync=multisplit:pos=midsld",
+	"multidisorder": "--lua-desync=multidisorder:pos=1,midsld",
+	"hostfakesplit": "--lua-desync=hostfakesplit:host=www.google.com",
+}
+
 func builtinZapretStrategies() []zStrategy {
-	base := "--qnum=200 --lua-init=@lua/zapret-lib.lua --lua-init=@lua/zapret-antidpi.lua --payload=tls_client_hello "
+	base := zapretBaseArgs + " "
 	return []zStrategy{
-		{Name: "fake", Args: base + "--lua-desync=fake:blob=fake_default_tls:tcp_md5"},
-		{Name: "fake + multisplit", Args: base + "--lua-desync=fake:blob=fake_default_tls:tcp_md5 --lua-desync=multisplit:pos=midsld"},
-		{Name: "multidisorder", Args: base + "--lua-desync=multidisorder:pos=1,midsld"},
-		{Name: "hostfakesplit", Args: base + "--lua-desync=hostfakesplit:host=www.google.com"},
+		{Name: "fake", Args: base + zapretStepArgs["fake"]},
+		{Name: "fake + multisplit", Args: base + zapretStepArgs["fake"] + " " + zapretStepArgs["multisplit"]},
+		{Name: "multidisorder", Args: base + zapretStepArgs["multidisorder"]},
+		{Name: "hostfakesplit", Args: base + zapretStepArgs["hostfakesplit"]},
 	}
 }
 func (m *zapret2) targets() []string {
@@ -377,6 +387,11 @@ func (m *zapret2) Actions() []Action {
 		presets = append(presets, Opt{preset.Name, preset.Name})
 	}
 	return []Action{
+		{ID: "ai-draft", Title: "Создать стратегию с ИИ", Args: []Field{
+			{Key: "base", Title: "Исходная стратегия", Type: "select", Value: presets[0].V, Options: presets},
+			{Key: "scenario", Title: "Что проверить", Type: "select", Value: "youtube", Options: []Opt{{"youtube", "Воспроизведение YouTube"}, {"discord", "Соединение Discord Gateway"}}},
+			{Key: "symptom", Title: "Наблюдение на устройстве", Type: "select", Value: "unknown", Options: []Opt{{"unknown", "Пока нет измерения"}, {"failed", "Приложение не работает, HTTPS-контроль проходит"}, {"intermittent", "Приложение периодически прерывается, HTTPS-контроль проходит"}}},
+		}},
 		{ID: "trial", Title: "Испытать запуск профиля", Args: []Field{
 			{Key: "preset", Title: "Встроенный профиль", Type: "select", Value: presets[0].V, Options: presets,
 				Help: "Испытание проходит в отдельной сети Linux."},

@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -295,6 +296,20 @@ func startWeb(listen string) error {
 			return nil, errNoModule
 		}
 		return inboundOlc.clientConfig(str(b, "name"))
+	})
+	api("zapret-draft", true, func(b map[string]json.RawMessage) (any, error) {
+		return generateZapretDraft(str(b, "base"), str(b, "scenario"), str(b, "symptom"), os.Getenv("VPNGUARD_ZAPRET_MODEL"), "http://127.0.0.1:11434/api/chat")
+	})
+	api("zapret-draft-trial", true, func(b map[string]json.RawMessage) (any, error) {
+		var steps []string
+		if err := json.Unmarshal(b["steps"], &steps); err != nil {
+			return nil, err
+		}
+		args, err := compileDraftSteps(steps)
+		if err != nil {
+			return nil, err
+		}
+		return trialZapretArgs("ИИ-черновик", args, "http")
 	})
 	api("do", true, func(b map[string]json.RawMessage) (any, error) {
 		if str(b, "module") == "olcrtc-server" {

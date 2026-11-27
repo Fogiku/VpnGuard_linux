@@ -116,6 +116,32 @@ async function runAction(modId, a, row) {
     $('af').onsubmit = async ev => {
       ev.preventDefault(); a.args.forEach((f, i) => { args[f.key] = $('aa' + i).value; });
       const b = $('af').querySelector('button[type=submit]'); b.disabled = true; $('ae').textContent = 'Выполняется…';
+      if (modId === 'zapret' && a.id === 'ai-draft') {
+        const draft = await post('zapret-draft', args, true);
+        if (!b.isConnected || !MODAL) return;
+        if (!draft) { b.disabled = false; $('ae').textContent = $('toast').textContent; return; }
+        modal(`<div class="sec">${draft.status === 'draft' ? 'Черновик стратегии zapret2' : 'Нужно измерение'}</div>
+          <p>${esc(draft.reason)}</p>${draft.status === 'draft' ? `<label>Исходные параметры</label><pre>${esc(draft.original)}</pre>
+          <label>Предложенные параметры</label><pre>${esc(draft.args)}</pre><p>SHA-256 ${esc(draft.sha256)}</p>
+          <button id="draft-test">Испытать локально</button><button id="draft-save">Скачать черновик</button><p id="draft-result" role="status"></p>` : ''}
+          <button id="draft-close">Закрыть</button>`);
+        $('draft-close').onclick = closeModal;
+        if (draft.status === 'draft') {
+          $('draft-save').onclick = () => {
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(new Blob([draft.args + '\n'], {type:'text/plain'}));
+            link.download = 'zapret-' + draft.sha256.slice(0,12) + '.args';
+            link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+          };
+          $('draft-test').onclick = async () => {
+            const button = $('draft-test'), result = $('draft-result');
+            button.disabled = true; result.textContent = 'Проверка…';
+            const message = await post('zapret-draft-trial', {steps:draft.steps}, true);
+            result.textContent = message || $('toast').textContent; button.disabled = false;
+          };
+        }
+        return;
+      }
       const r = await post('do', { module: modId, action: a.id, args: args }, showResult);
       if (r === null) { b.disabled = false; $('ae').textContent = document.getElementById('toast').textContent; return; }
       if (showResult) {
