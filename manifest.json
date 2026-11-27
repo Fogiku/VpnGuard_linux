@@ -1,15 +1,15 @@
 {
-  "version": "1.9.54",
-  "source": "4231f21b2c6d2430982489d7b698e6d95ac280fd",
+  "version": "1.9.55",
+  "source": "4f5193697c7512ab7739ba242ff0231fc1240fe7",
   "sha256": {
-    "amd64": "6728113d3f6ece648b5789cfff34b60c51c80c232d9cc20d52d6ff10ed19bb17",
-    "arm64": "761cbc7ba55ab027c4d6636c7830bab9fba9108ae877a1c98db15f949f24bae9"
+    "amd64": "6b3f3e0c96308ca0d0e9f65d7a0eaabfcfc74d27c35903efd9c7324f5c82b34f",
+    "arm64": "486781607eac47704b0014251cefd536853586ce6c2273cacb0577d774c168a4"
   },
   "helpers": {
     "guarded_update.py": "6f318ca0f14789d5efcbf6a85b9712c55c240423ba4d5cf2cc760f985ccf43f9",
     "route_guard.py": "bda39fa92512ae004fe671178e02ecd014b64e9edc2b39b1824ecff05550afcf"
   },
   "changes": [
-    "В zapret2 можно установить локальную Ollama, выбрать модель Qwen 2.5 и следить за загрузкой прямо из веб-интерфейса."
+    "Последний проверенный черновик zapret2 сохраняется на шлюзе. Его можно повторно открыть, скачать или испытать после перезапуска агента."
   ]
 }
