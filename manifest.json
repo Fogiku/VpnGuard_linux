@@ -1,15 +1,15 @@
 {
-  "version": "1.9.58",
-  "source": "b28948a63c0d1bea20a20fd1df348ec757f3d7bf",
+  "version": "1.9.59",
+  "source": "9d2971ec297fa428951f3fd2f67ea32130e7eb32",
   "sha256": {
-    "amd64": "652b1571c7f117321d6a842db4af8e1afd6f5b644cb80b922e05af7ee90d3ad7",
-    "arm64": "613015879e61643cfabd8bc3a92296ee9eae9dedf9f42775bf7af9e0695e5c98"
+    "amd64": "50219d93c8e773f2b2e5fb5e170969a49c13b7c6421fd896aea9a4f042b56474",
+    "arm64": "6de1a07dbab6d573b22c2c97b472384a8e4a8ca5712b9a177fa4f6614cc2ceaa"
   },
   "helpers": {
     "guarded_update.py": "6f318ca0f14789d5efcbf6a85b9712c55c240423ba4d5cf2cc760f985ccf43f9",
     "route_guard.py": "bda39fa92512ae004fe671178e02ecd014b64e9edc2b39b1824ecff05550afcf"
   },
   "changes": [
-    "Панель сверяет итог парного отчёта и его счётчики с отдельными пробами. Для неопределённой серии показывает причины, включая сбой контроля и расхождение между повторами."
+    "На подготовленном клиенте Linux скрипт run_client_comparison.sh запускает две серии браузерных проб и собирает JSON для окна черновика."
   ]
 }
