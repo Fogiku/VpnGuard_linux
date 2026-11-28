@@ -16,6 +16,8 @@ type dpiSampleCounts struct {
 }
 
 type dpiSampleResult struct {
+	Source       string           `json:"source,omitempty"`
+	Interface    string           `json:"-"`
 	SnapshotRows *int             `json:"snapshotRows,omitempty"`
 	Truncated    bool             `json:"truncated,omitempty"`
 	Description  string           `json:"description"`
@@ -49,10 +51,10 @@ func (m *flowModule) diagnosticDPI() dpiHistoryPage {
 }
 
 func dpiHistoryTable(samples []dpiSampleResult) Table {
-	t := Table{Title: "История выборок nDPI", Cols: []string{"Время", "Результат", "Строк в снимке шлюза", "Пакетов WG", "Потоков WG в CSV", "С меткой протокола", "Из них целевых сервисов", "Unknown", "Связано с conntrack"}, Note: "Последние 16 попыток. Снимок IPv4 шлюза сделан после выборки WG. Целевые сервисы: YouTube, Discord, Telegram, Netflix и Steam.", Rows: [][]string{}}
+	t := Table{Title: "История выборок nDPI", Cols: []string{"Время", "Результат", "Строк в снимке шлюза", "Пакетов", "Потоков в CSV", "С меткой протокола", "Из них целевых сервисов", "Unknown", "Связано с conntrack"}, Note: "Последние 16 попыток. Снимок IPv4 шлюза сделан после выборки интерфейса. Целевые сервисы: YouTube, Discord, Telegram, Netflix и Steam.", Rows: [][]string{}}
 	for i := len(samples) - 1; i >= 0; i-- {
 		s := samples[i]
-		row := []string{time.Unix(s.At, 0).Format(time.RFC3339), s.Description}
+		row := []string{time.Unix(s.At, 0).Format(time.RFC3339), s.Description + " · " + s.Source}
 		snapshot := "—"
 		if s.SnapshotRows != nil {
 			snapshot = strconv.Itoa(*s.SnapshotRows)

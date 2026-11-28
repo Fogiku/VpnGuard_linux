@@ -4,7 +4,10 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"net/netip"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,10 +28,13 @@ type flowRow struct {
 	Zone            uint16  `json:"zone"`
 }
 type flowModule struct {
-	dpiHistory    []dpiSampleResult
-	bindings      map[string]dpiBinding
-	installMu     sync.Mutex
-	installStatus string
+	sampleInterface string
+	lanTurn         bool
+	lastLAN         string
+	dpiHistory      []dpiSampleResult
+	bindings        map[string]dpiBinding
+	installMu       sync.Mutex
+	installStatus   string
 	base
 	profileArgs string
 	unanswered  map[dpiRowKey]bool
@@ -48,7 +54,7 @@ func (m *flowModule) Color() string         { return "#49b8e8" }
 func (m *flowModule) Aux() bool             { return true }
 func (m *flowModule) Period() time.Duration { return 15 * time.Second }
 func (m *flowModule) Fields() []Field {
-	return []Field{{Key: "flows.enabled", Title: "Собирать снимки соединений", Type: "bool", Value: cfg("flows.enabled", "false"), Help: "Чтение conntrack IPv4 раз в 15 секунд, до 512 записей. Адреса хранятся только в памяти. Распознавание nDPI включается отдельно."}, {Key: "flows.eventsEnabled", Title: "Наблюдать жизненный цикл соединений", Type: "bool", Value: cfg("flows.eventsEnabled", "false"), Help: "Нужен включённый сбор снимков. Подписка NEW/UPDATE/DESTROY, до 512 поколений в памяти. Потеря heartbeat сбрасывает поколения. Наблюдение требуется для привязки меток nDPI к отдельным соединениям."}, {Key: "flows.dpiEnabled", Title: "Пассивное распознавание nDPI", Type: "bool", Value: cfg("flows.dpiEnabled", "false"), Help: "Короткие выборки IPv4 TCP/UDP на интерфейсе WG-Server. Нужны сбор снимков, Python 3 и ndpiReader 4.2.0."}}
+	return []Field{{Key: "flows.enabled", Title: "Собирать снимки соединений", Type: "bool", Value: cfg("flows.enabled", "false"), Help: "Чтение conntrack IPv4 раз в 15 секунд, до 512 записей. Адреса хранятся только в памяти. Распознавание nDPI включается отдельно."}, {Key: "flows.eventsEnabled", Title: "Наблюдать жизненный цикл соединений", Type: "bool", Value: cfg("flows.eventsEnabled", "false"), Help: "Нужен включённый сбор снимков. Подписка NEW/UPDATE/DESTROY, до 512 поколений в памяти. Потеря heartbeat сбрасывает поколения. Наблюдение требуется для привязки меток nDPI к отдельным соединениям."}, {Key: "flows.dpiEnabled", Title: "Пассивное распознавание nDPI", Type: "bool", Value: cfg("flows.dpiEnabled", "false"), Help: "Короткие выборки IPv4 TCP/UDP на WG-Server и для внешних соединений клиентов LAN, закреплённых за zapret. Нужны сбор снимков, Python 3 и ndpiReader 4.2.0."}}
 }
 func (m *flowModule) Set(k, v string) error {
 	if k != "flows.enabled" && k != "flows.eventsEnabled" && k != "flows.dpiEnabled" {
@@ -63,6 +69,36 @@ func (m *flowModule) Set(k, v string) error {
 	m.Tick()
 	return nil
 }
+
+// Alternate WG with an on-link LAN client from the previous routed flow snapshot.
+func (m *flowModule) nextLAN() []string {
+	m.lanTurn = !m.lanTurn
+	if m.lanTurn || m.at.IsZero() || time.Since(m.at) > time.Minute {
+		return nil
+	}
+	var sources []string
+	seen := map[string]bool{}
+	for _, row := range m.rows {
+		ip, err := netip.ParseAddr(row.Source)
+		if err != nil || !ip.Is4() || !ip.IsPrivate() || row.Mark>>16&255 != 19 || strings.HasPrefix(row.Source, wgMod.subnet()+".") || seen[row.Source] {
+			continue
+		}
+		seen[row.Source] = true
+		sources = append(sources, row.Source)
+	}
+	if len(sources) == 0 {
+		return nil
+	}
+	sort.Strings(sources)
+	index := sort.Search(len(sources), func(i int) bool { return sources[i] > m.lastLAN })
+	local, err := parseLocalNetworks(cfg("net.localNetworks", ""))
+	if err != nil {
+		return nil
+	}
+	m.lastLAN = sources[index%len(sources)]
+	return append([]string{m.lastLAN}, local...)
+}
+
 func (m *flowModule) Tick() {
 	m.tk.Lock()
 	defer m.tk.Unlock()
@@ -71,7 +107,7 @@ func (m *flowModule) Tick() {
 	var result dpiSampleResult
 	var bindings map[string]dpiBinding
 	if cfgBool("flows.enabled", false) && cfgBool("flows.dpiEnabled", false) {
-		sample, summary, matched := sampleDPITable(wgMod.iface(), m.events)
+		sample, summary, matched := sampleDPITable(wgMod.iface(), m.events, m.nextLAN()...)
 		result = summary
 		result.Description = dpiStatuses[result.Status]
 		bindings = matched
@@ -113,6 +149,7 @@ func (m *flowModule) Tick() {
 	m.unanswered = repeatedUnanswered(m.rows, view.Rows, !m.truncated && !view.Truncated && !m.at.IsZero() && at.After(m.at) && at.Sub(m.at) <= time.Minute)
 	m.rows, m.at, m.truncated = view.Rows, at, view.Truncated
 	m.bindings, m.dpi = bindings, dpi
+	m.sampleInterface = result.Interface
 	if dpi == nil {
 		m.dpiHistory = nil
 	} else {
@@ -124,6 +161,17 @@ func (m *flowModule) Tick() {
 	m.mu.Unlock()
 	m.setSt(level, false, status, why)
 	if stableProfile {
+		// Binding a live nDPI observation requires the event reader to drain past the snapshot.
+		if len(bindings) > 0 && len(m.unanswered) > 0 {
+			deadline := time.Now().Add(1500 * time.Millisecond)
+			for time.Now().Before(deadline) {
+				boundary, err := m.events.dpiBoundary()
+				if err != nil || !boundary.At.Before(at) {
+					break
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
 		m.maybeDraftFromPending(profileArgs)
 	}
 }

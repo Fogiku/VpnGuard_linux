@@ -13,7 +13,7 @@ import (
 //go:embed deploy/passive_dpi.py
 var passiveDPIScript string
 
-func sampleDPITable(iface string, events *flowEventSession) (Table, dpiSampleResult, map[string]dpiBinding) {
+func sampleDPITable(iface string, events *flowEventSession, lan ...string) (Table, dpiSampleResult, map[string]dpiBinding) {
 	result := dpiSampleResult{At: time.Now().Unix(), Status: "worker"}
 	t := Table{Title: "Пассивное распознавание nDPI", Cols: []string{"Протокол", "Потоков в выборке"}, Rows: [][]string{}, Empty: "Ожидание выборки"}
 	if Sim {
@@ -22,11 +22,16 @@ func sampleDPITable(iface string, events *flowEventSession) (Table, dpiSampleRes
 		return t, result, nil
 	}
 	before, beforeErr := events.dpiBoundary()
-	out, code := S.Run(12*time.Second, passiveDPIScript, "python3", "-", iface)
+	result.Source = "WG · " + iface
+	args := append([]string{"-", iface}, lan...)
+	if len(lan) > 0 {
+		result.Source = "LAN"
+	}
+	out, code := S.Run(18*time.Second, passiveDPIScript, "python3", args...)
 	var batch struct {
-		Start, End int64
-		Packets    *int
-		CSV, Error string
+		Start, End            int64
+		Packets               *int
+		CSV, Error, Interface string
 	}
 	if code != 0 || json.Unmarshal([]byte(out), &batch) != nil {
 		t.Empty = "Не удалось запустить сборщик nDPI."
@@ -39,7 +44,7 @@ func sampleDPITable(iface string, events *flowEventSession) (Table, dpiSampleRes
 		default:
 			result.Status = "reader"
 		}
-		t.Empty = map[string]string{"missing": "Нажмите «Установить libndpi-bin» на этой странице.", "version": "Поддерживается ndpiReader 4.2.0.", "permission": "Для чтения пакетов нужны права CAP_NET_RAW.", "interface": "Не удалось открыть интерфейс WG-Server или файл в памяти.", "drops": "Ядро сообщило о потере пакетов. Выборка пропущена."}[batch.Error]
+		t.Empty = map[string]string{"missing": "Нажмите «Установить libndpi-bin» на этой странице.", "version": "Поддерживается ndpiReader 4.2.0.", "permission": "Для чтения пакетов нужны права CAP_NET_RAW.", "interface": "Не удалось открыть интерфейс выборки или файл в памяти.", "drops": "Ядро сообщило о потере пакетов. Выборка пропущена."}[batch.Error]
 		if t.Empty == "" {
 			t.Empty = "Не удалось обработать выборку nDPI."
 		}
@@ -50,6 +55,15 @@ func sampleDPITable(iface string, events *flowEventSession) (Table, dpiSampleRes
 		t.Empty = "Некорректные границы выборки."
 		return t, result, nil
 	}
+	if len(lan) > 0 {
+		if batch.Interface == "" {
+			result.Status = "interface"
+			return t, result, nil
+		}
+		iface = batch.Interface
+		result.Source = "LAN · " + iface
+	}
+	result.Interface = iface
 	c := dpiCapture{Source: iface, Version: "4.2.0", GuessDisabled: true, Start: time.UnixMilli(batch.Start), End: time.UnixMilli(batch.End)}
 	t.Note = fmt.Sprintf("%s · %s · %d пакетов. CSV nDPI 4.2.0 не содержит оценки уверенности.", iface, c.End.Format(time.RFC3339), *batch.Packets)
 	t.Empty = "За время выборки протоколы не наблюдались."

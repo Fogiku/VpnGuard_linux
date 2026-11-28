@@ -304,6 +304,13 @@ func startWeb(listen string) error {
 		}
 		return mod("zapret").(*zapret2).admitReserve(r)
 	})
+	api("zapret-activity", false, func(map[string]json.RawMessage) (any, error) { return zapretActivity(), nil })
+	api("zapret-enable-monitor", true, func(map[string]json.RawMessage) (any, error) {
+		if err := setConfigValues(map[string]string{"flows.enabled": "true", "flows.dpiEnabled": "true", "flows.eventsEnabled": "true", "zapret.passiveDraft": "true"}); err != nil {
+			return nil, err
+		}
+		return "Автоматический анализ включён", nil
+	})
 	api("discord-flow-draft", true, func(b map[string]json.RawMessage) (any, error) {
 		var samples []discordSample
 		if err := json.Unmarshal(b["samples"], &samples); err != nil {

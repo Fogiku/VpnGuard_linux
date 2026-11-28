@@ -620,11 +620,11 @@ function drawRateChart(cv, a) {
 function dpiReportLines(history) {
   if (!history?.enabled) return ['nDPI: сбор выключен или недоступен.'];
   if (!history.samples.length) return ['nDPI: ожидание первой попытки.'];
-  return ['nDPI · последние выборки (UTC). Целевые сервисы: YouTube, Discord, Telegram, Netflix, Steam. Снимок шлюза сделан после выборки WG.', ...history.samples.map(s => {
+  return ['nDPI · последние выборки (UTC). Целевые сервисы: YouTube, Discord, Telegram, Netflix, Steam. Снимок шлюза сделан после выборки интерфейса.', ...history.samples.map(s => {
     const counts = s.counts;
     const snapshot = s.snapshotRows == null ? 'нет снимка' : s.snapshotRows + (s.truncated ? ' (неполный)' : '');
-    const result = new Date(s.at * 1000).toISOString() + ' · ' + s.description + ' · строки IPv4 шлюза: ' + snapshot;
-    return counts ? result + ' · пакетов ' + counts.packets + ', потоков WG в CSV ' + (counts.recognized + counts.unknown) + ', с меткой протокола ' + counts.recognized +
+    const result = new Date(s.at * 1000).toISOString() + ' · ' + s.description + ' · ' + (s.source || 'WG') + ' · строки IPv4 шлюза: ' + snapshot;
+    return counts ? result + ' · пакетов ' + counts.packets + ', потоков в CSV ' + (counts.recognized + counts.unknown) + ', с меткой протокола ' + counts.recognized +
       ', из них целевых сервисов ' + counts.targetServices +
       ', Unknown ' + counts.unknown + ', связано с conntrack ' + counts.bound : result;
   })];
@@ -758,4 +758,33 @@ async function pLogs() {
   let l; try { l = await get('log'); } catch (e) { return; } if (PAGE !== 'logs' || busyUI()) return;
   $('page').innerHTML = `<pre class="log lgv">${l.slice().reverse().map(x => `<span class="${x.lvl === 'ERROR' ? 'le' : x.lvl === 'WARN' ? 'lw' : ''}">${x.t} [${x.lvl}] ${esc(x.text)}</span>`).join('')}</pre>`;
 }
+let watching = false;
+async function refreshWatch() {
+  const box = $('flow-watch'), button = $('flow-watch-enable');
+  box.hidden = !['home','zapret','flows'].includes(PAGE);
+  if (box.hidden || watching) return;
+  watching = true;
+  try {
+    const response = await fetch('/api/zapret-activity', {cache:'no-store'});
+    if (response.status === 401) { box.hidden=true; return; }
+    if (!response.ok) throw new Error();
+    const {result} = await response.json();
+    $('flow-watch-state').textContent = result.state;
+    const detail = [];
+    if (result.sampleAt) detail.push('Последняя выборка: ' + (result.source || 'nDPI') + ' · ' + new Date(result.sampleAt*1000).toLocaleTimeString());
+    if (result.lastAt) detail.push(result.last + ' · ' + new Date(result.lastAt).toLocaleTimeString());
+    $('flow-watch-detail').textContent = detail.join(' | ');
+    button.hidden = result.enabled;
+  } catch (_) {
+    $('flow-watch-state').textContent = 'Нет связи с агентом';
+    $('flow-watch-detail').textContent = ''; button.hidden = true;
+  } finally { watching = false; }
+}
+$('flow-watch-enable').onclick = async () => {
+  const button = $('flow-watch-enable'); button.disabled = true;
+  try { await post('zapret-enable-monitor', {}); await refreshWatch(); }
+  finally { button.disabled = false; }
+};
+window.addEventListener('hashchange',refreshWatch);
+refreshWatch(); setInterval(refreshWatch,3000);
 refresh(true); setInterval(refresh, 3000);

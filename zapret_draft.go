@@ -125,15 +125,14 @@ func compileDraftSteps(steps []string) (string, error) {
 
 var draftRequest sync.Mutex
 
-func generateZapretDraft(base, scenario, symptom, model, endpoint string, samples ...discordSample) (zapretDraft, error) {
-	var draft zapretDraft
+func generateZapretDraft(base, scenario, symptom, model, endpoint string, samples ...discordSample) (draft zapretDraft, failure error) {
 	for _, p := range draftBaselines() {
 		if p.Name == base {
 			draft.Original = p.Args
 			break
 		}
 	}
-	if draft.Original == "" || (scenario != "youtube" && scenario != "discord") || (symptom != "unknown" && symptom != "failed" && symptom != "intermittent" && symptom != "tcp_without_observed_reply") {
+	if draft.Original == "" || (scenario != "youtube" && scenario != "discord") || (symptom != "unknown" && symptom != "failed" && symptom != "intermittent" && symptom != "tcp_without_observed_reply" && symptom != "flow_without_observed_reply") {
 		return draft, errors.New("проверьте исходный профиль, сценарий и наблюдение")
 	}
 	if symptom == "unknown" {
@@ -152,9 +151,26 @@ func generateZapretDraft(base, scenario, symptom, model, endpoint string, sample
 		return draft, errors.New("черновик занят, повторите генерацию позже")
 	}
 	defer draftRequest.Unlock()
+	draftActivity.Lock()
+	draftActivity.running = scenario
+	draftActivity.Unlock()
+	defer func() {
+		draftActivity.Lock()
+		defer draftActivity.Unlock()
+		draftActivity.at = time.Now()
+		draftActivity.running = ""
+		switch {
+		case failure != nil:
+			draftActivity.last = "Ошибка генерации · " + failure.Error()
+		case draft.Status == "draft":
+			draftActivity.last = "Создан черновик · " + scenario
+		default:
+			draftActivity.last = "Нужен дополнительный замер · " + scenario
+		}
+	}()
 	context := map[string]any{"baseline": base, "scenario": scenario, "device_observation": symptom, "diagnostics": readDiagnosticSnapshotV1()}
 	if counts := flowsMod.unansweredByApp(); len(counts) > 0 {
-		context["zapret_tcp_without_observed_reply_two_snapshots"] = counts
+		context["zapret_flows_without_observed_reply_two_snapshots"] = counts
 	}
 	context["services_to_preserve"] = []string{"youtube", "discord_gateway"}
 	if len(samples) > 0 {

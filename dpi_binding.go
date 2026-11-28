@@ -100,7 +100,7 @@ func (m *flowModule) snapshotLabels() map[dpiRowKey]dpiObservation {
 	labels := map[dpiRowKey]dpiObservation{}
 	for _, life := range current.Frame.Rows {
 		b, ok := m.bindings[life.Generation]
-		if ok && b.Epoch == current.Frame.Epoch && life.Row.ConntrackID != nil && counts[originalTuple(life.Row)] == 1 && b.Observation.Source == wgMod.iface() {
+		if ok && b.Epoch == current.Frame.Epoch && life.Row.ConntrackID != nil && counts[originalTuple(life.Row)] == 1 && (b.Observation.Source == wgMod.iface() || m.sampleInterface != "" && b.Observation.Source == m.sampleInterface) {
 			labels[dpiKey(life.Row)] = b.Observation
 		}
 	}

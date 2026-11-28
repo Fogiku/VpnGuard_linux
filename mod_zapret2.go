@@ -420,7 +420,7 @@ func (m *zapret2) Fields() []Field {
 	}
 	return []Field{fb("zapret.enabled", "zapret2 включён", "bool", "true", ""),
 		fb("zapret.strategy", "Стратегия", "select", "", "В режиме «авто» агент переподбирает её сам, когда сайты перестают открываться", o...),
-		fb("zapret.passiveDraft", "ИИ-черновик по TCP без ответа", "bool", "false", "Нужны снимки потоков и привязка nDPI к YouTube или Discord. Общий лимит с клиентской пробой — одна попытка в час."),
+		fb("zapret.passiveDraft", "ИИ-черновик по TCP или UDP/443 без ответа", "bool", "false", "Нужны снимки потоков и привязка nDPI к YouTube или Discord. Общий лимит с клиентской пробой — одна попытка в час."),
 		fb("zapret.flowDraft", "Создавать ИИ-черновик по сбоям TCP Discord", "bool", "false", "Для клиентской пробы probe_discord_draft.py. Два сбоя при исправном HTTPS-контроле, не более одной генерации в час."),
 		fb("zapret.recoveryMode", "Автоподбор при сбое", "select", "any", "Действует при автоматическом выборе стратегии. Проверки выполняются на шлюзе.", Opt{"observe", "Только наблюдать"}, Opt{"any", "Если недоступна хотя бы одна цель"}, Opt{"all", "Если недоступны все цели"}),
 		fb("zapret.recoveryFailures", "Проверок подряд до автоподбора", "number", "2", "От 1 до 10."),

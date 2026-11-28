@@ -114,8 +114,10 @@ func (m *zapret2) recoverReserve(base siteCheck) {
 		return
 	}
 	original := m.strat[current]
+	defer m.busy("")
 	record := reserveRecovery{Original: draftHash(original.Args)}
-	for _, i := range m.reserveIndices(current) {
+	for slot, i := range m.reserveIndices(current) {
+		m.busy(fmt.Sprintf("Проверяется резерв %d · %s", slot+1, m.strat[i].Name))
 		record.Attempts = append(record.Attempts, reserveAttempt{Revision: draftHash(m.strat[i].Args), Result: "Проверка начата"})
 		attempt := &record.Attempts[len(record.Attempts)-1]
 		if err := record.save("Начата проверка резерва", ""); err != nil {
@@ -290,7 +292,7 @@ func repeatedUnanswered(before, after []flowRow, complete bool) map[dpiRowKey]bo
 		return nil
 	}
 	eligible := func(r flowRow) bool {
-		return r.Protocol == "tcp" && r.Mark>>16&255 == 19 && r.ConntrackID != nil && r.SeenReply != nil && !*r.SeenReply
+		return (r.Protocol == "tcp" || r.Protocol == "udp" && r.DestinationPort == 443) && r.Mark>>16&255 == 19 && r.ConntrackID != nil && r.SeenReply != nil && !*r.SeenReply
 	}
 	first := map[dpiRowKey]bool{}
 	for _, r := range before {
@@ -360,6 +362,11 @@ func (m *flowModule) maybeDraftFromPending(profileArgs string) {
 		scenario = "discord"
 	}
 	if byService[scenario] == 0 {
+		if len(counts) > 0 {
+			draftWait("Есть потоки без ответа. Привязка к YouTube или Discord не подтверждена")
+		} else {
+			draftWait("Наблюдение · повторных потоков без ответа не обнаружено")
+		}
 		return
 	}
 	raw, err := S.ReadFile(zArgs)
@@ -371,10 +378,11 @@ func (m *flowModule) maybeDraftFromPending(profileArgs string) {
 			continue
 		}
 		if !allow("zapret.flowDraft", 1, time.Hour) {
+			draftWait("Подходящий сигнал обнаружен · действует часовой лимит генерации")
 			return
 		}
 		go func() {
-			d, err := generateZapretDraft(base.Name, scenario, "tcp_without_observed_reply", aiModel(), "http://127.0.0.1:11434/api/chat")
+			d, err := generateZapretDraft(base.Name, scenario, "flow_without_observed_reply", aiModel(), "http://127.0.0.1:11434/api/chat")
 			if err != nil {
 				Log("WARN", "zapret2: генерация по снимку потоков: %v", err)
 				return
