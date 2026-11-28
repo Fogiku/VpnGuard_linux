@@ -63,4 +63,35 @@ func TestRecoveryFromSimulatedGatewayFailure(t *testing.T) {
 	if m.running != "hostfakesplit" || !m.Status().Up || m.Status().Level != 0 || m.want() != m.running {
 		t.Fatal("recovery", m.running, m.Status())
 	}
+	loadCfg()
+	last := latestReserveRecovery()
+	if last == nil || last.Status != "Резерв принят" || len(last.Attempts) != 3 || last.Attempts[2].Revision != draftHash(m.strat[m.index(m.want())].Args) {
+		t.Fatal("committed reserve record", last)
+	}
+}
+
+func TestInterruptedReserveUsesCommittedProfile(t *testing.T) {
+	setup(t)
+	m := &zapret2{strat: builtinZapretStrategies()}
+	if err := setCfg("zapret.picked", m.strat[1].Name); err != nil {
+		t.Fatal(err)
+	}
+	attempt := reserveRecovery{Original: draftHash(m.strat[1].Args), Attempts: []reserveAttempt{{Revision: draftHash(m.strat[0].Args), Result: "Проверка начата"}}}
+	if err := attempt.save("Начата проверка резерва", ""); err != nil {
+		t.Fatal(err)
+	}
+	if !m.apply(0) {
+		t.Fatal(m.startErr)
+	}
+	loadCfg()
+	restarted := &zapret2{}
+	restarted.Tick()
+	raw, err := S.ReadFile(zArgs)
+	if err != nil || raw != m.strat[1].Args+"\n" || restarted.running != m.strat[1].Name {
+		t.Fatal(restarted.running, err)
+	}
+	last := latestReserveRecovery()
+	if last == nil || last.Status != "Начата проверка резерва" || len(last.Attempts) != 1 || last.Attempts[0] != attempt.Attempts[0] {
+		t.Fatal(last)
+	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -47,43 +48,129 @@ func improvesTargets(base, candidate siteCheck) bool {
 	return better
 }
 
-// Recovery probes the first viable reserve and restores the previous profile on failure.
+type reserveAttempt struct {
+	Revision string `json:"revision"`
+	Result   string `json:"result"`
+}
+type reserveRecovery struct {
+	Updated  string           `json:"updated"`
+	Original string           `json:"original"`
+	Status   string           `json:"status"`
+	Attempts []reserveAttempt `json:"attempts"`
+}
+
+func latestReserveRecovery() *reserveRecovery {
+	var last reserveRecovery
+	if json.Unmarshal([]byte(cfg("zapret.reserveRecovery", "")), &last) != nil || last.Status == "" {
+		return nil
+	}
+	return &last
+}
+
+// Commit the selection and its verified outcome in the same config write.
+func (r *reserveRecovery) save(status, selection string) error {
+	r.Updated = time.Now().UTC().Format(time.RFC3339)
+	r.Status = status
+	data, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	values := map[string]string{"zapret.reserveRecovery": string(data)}
+	if selection != "" {
+		values["zapret.picked"] = selection
+	}
+	return setConfigValues(values)
+}
+
+func (m *zapret2) verifyReserve(i int, base siteCheck) (siteCheck, string) {
+	if !m.apply(i) {
+		return siteCheck{}, "Резерв не запустился"
+	}
+	time.Sleep(time.Duration(cfgInt("zapret.settleMs", 300)) * time.Millisecond)
+	var check siteCheck
+	for _, stage := range []string{"Первая проверка", "Повторная проверка"} {
+		check = m.check()
+		if check.setupError != "" {
+			return check, stage + " недоступна"
+		}
+		if !active(zUnit) {
+			return check, "Служба остановилась"
+		}
+		if !improvesTargets(base, check) {
+			for target, was := range base.results {
+				if was && !check.results[target] {
+					return check, stage + ": потеря ранее доступной цели"
+				}
+			}
+			return check, stage + ": улучшение не подтверждено"
+		}
+	}
+	return check, ""
+}
+
 func (m *zapret2) recoverReserve(base siteCheck) {
 	current := m.index(m.running)
 	if current < 0 {
 		return
 	}
-	original := m.strat[current].Name
+	original := m.strat[current]
+	record := reserveRecovery{Original: draftHash(original.Args)}
 	for _, i := range m.reserveIndices(current) {
-		if m.apply(i) {
-			time.Sleep(time.Duration(cfgInt("zapret.settleMs", 300)) * time.Millisecond)
-			check := m.check()
-			if improvesTargets(base, check) && active(zUnit) {
-				verified := m.check()
-				if improvesTargets(base, verified) && active(zUnit) {
-					if err := setCfg("zapret.picked", m.strat[i].Name); err == nil {
-						m.checkedAt = time.Now()
-						m.recordHealth(verified)
-						Decide("INFO", "zapret2: резерв «%s» заменил «%s», %s", m.running, original, verified.summary())
-						return
-					}
-				}
-			}
+		record.Attempts = append(record.Attempts, reserveAttempt{Revision: draftHash(m.strat[i].Args), Result: "Проверка начата"})
+		attempt := &record.Attempts[len(record.Attempts)-1]
+		if err := record.save("Начата проверка резерва", ""); err != nil {
+			Decide("ERROR", "zapret2: не удалось сохранить начало проверки резерва: %v", err)
+			return
 		}
+		verified, reason := m.verifyReserve(i, base)
+		if reason == "" {
+			attempt.Result = "Улучшение подтверждено дважды"
+			if err := record.save("Резерв принят", m.strat[i].Name); err == nil {
+				m.checkedAt = time.Now()
+				m.recordHealth(verified)
+				Decide("INFO", "zapret2: резерв «%s» заменил «%s», %s", m.running, original.Name, verified.summary())
+				return
+			}
+			reason = "Не удалось сохранить выбор резерва"
+		}
+		attempt.Result = reason
 		if !m.apply(current) {
+			if err := record.save("Ошибка возврата к исходному профилю", ""); err != nil {
+				Log("ERROR", "zapret2: запись результата: %v", err)
+			}
 			m.setSt(2, false, "Не удалось восстановить исходную стратегию", m.startErr)
-			Decide("ERROR", "zapret2: ошибка возврата к «%s»: %s", original, m.startErr)
+			Decide("ERROR", "zapret2: ошибка возврата к «%s»: %s", original.Name, m.startErr)
+			return
+		}
+		if err := record.save("Исходный профиль запущен", ""); err != nil {
+			Log("ERROR", "zapret2: запись возврата: %v", err)
 			return
 		}
 	}
 	m.checkedAt = time.Now()
 	result := m.check()
+	status := "Оставлен исходный профиль · " + result.summary()
 	if result.setupError != "" {
+		status = "Исходный профиль запущен, итоговая проверка недоступна"
 		m.setSt(1, false, "Проверка после возврата недоступна", result.setupError)
 	} else {
 		m.recordHealth(result)
 	}
-	Decide("WARN", "zapret2: резерв не подтвердил улучшение, оставлена стратегия «%s»", original)
+	if err := record.save(status, ""); err != nil {
+		Log("ERROR", "zapret2: запись результата: %v", err)
+	}
+	Decide("WARN", "zapret2: резерв не подтвердил улучшение, оставлена стратегия «%s»", original.Name)
+}
+
+func reserveRecoveryTable() Table {
+	table := Table{Title: "Последнее автоматическое переключение", Cols: []string{"SHA-256 резерва", "Результат"}, Empty: "Автоматических попыток ещё не было"}
+	if last := latestReserveRecovery(); last != nil {
+		table.Note = last.Updated + " · " + last.Status + " · исходный SHA-256 " + last.Original
+		for _, a := range last.Attempts {
+			table.Rows = append(table.Rows, []string{a.Revision, a.Result})
+		}
+	}
+	return table
 }
 
 type reservePair struct {

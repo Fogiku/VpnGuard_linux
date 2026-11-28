@@ -115,6 +115,7 @@ func buildState() map[string]any {
 		out["olcInstall"] = olcInstallStatus()
 	}
 	out["routeResources"] = resources
+	out["zapretRecovery"] = latestReserveRecovery()
 	out["dpiHistory"] = flowsMod.diagnosticDPI()
 	out["flowLifecycle"] = flowsMod.lifecycle()
 	out["networkTelemetry"] = networkTelemetryView()

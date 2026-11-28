@@ -649,6 +649,11 @@ function downloadDiagnosticReport(checks, state) {
       'Без наблюдаемого начала: UPDATE ' + flows.unmatchedUpdates + ', DESTROY ' + flows.unmatchedDestroys
     ] : ['События соединений IPv4: нет свежей сводки']),
     ...dpiReportLines(state.dpiHistory),
+    ...(state.zapretRecovery ? [
+      'Автоматическое переключение zapret2 (UTC): ' + state.zapretRecovery.updated + ' · ' + state.zapretRecovery.status,
+      'Исходный SHA-256: ' + state.zapretRecovery.original,
+      ...(state.zapretRecovery.attempts || []).map(a => '  ' + a.revision + ' · ' + a.result)
+    ] : []),
     'Качество ICMP за 5 минут (UTC)',
     ...(quality.length ? quality : ['Нет серий за этот период.']),
     'Последнее обновление: ' + (last ? last.version + ' · ' + last.status + ' · ' + last.at : 'записей нет'),

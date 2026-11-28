@@ -570,7 +570,7 @@ func (m *zapret2) Tables() []Table {
 	return []Table{{Title: "Проверка сайтов", Cols: []string{"Проверка", "Результат", "Подробности"}, Rows: sites, Empty: "Проверка ещё не выполнялась", Note: "HTTP 403/404 у корня сайта означает, что сервер ответил. Gateway проверяется по HTTPS. Скорость — загрузка JS плеера, как в Windows; воспроизведение ролика, WebSocket и голос Discord здесь не проверяются."},
 		{Title: "История проверок шлюза", Cols: []string{"Время UTC", "Результат"}, Rows: history, Empty: "Нет завершённых проверок", Note: "Последние 16 попыток с момента запуска агента. Ошибка подготовки сохраняется отдельно от результата запросов."},
 		{Title: "Стратегии", Cols: []string{"Название", "Параметры nfqws2", "Последний подбор", "Состояние"}, Rows: rows,
-			Actions: []Action{{ID: "select", Title: "Выбрать"}, {ID: "delete", Title: "Удалить", Danger: true, Confirm: "Удалить стратегию?"}}}, aiSetupTable()}
+			Actions: []Action{{ID: "select", Title: "Выбрать"}, {ID: "delete", Title: "Удалить", Danger: true, Confirm: "Удалить стратегию?"}}}, aiSetupTable(), reserveRecoveryTable()}
 }
 func (m *zapret2) Checks() []Check {
 	return []Check{
