@@ -1,15 +1,15 @@
 {
-  "version": "1.9.64",
-  "source": "650ee5b2aeb0e05b71b909fc7511860f61eac30c",
+  "version": "1.9.65",
+  "source": "16af408282cc54597f1da5262b3bdbbeffceac4c",
   "sha256": {
-    "amd64": "6cd2edb988edbe024325c86f44b66515f749055b77a00a45dc3dcfa969878a28",
-    "arm64": "4e7e5f8de8a606d13f1a79df1b52659aa3b6b05be60a78aa5ccc53f89f3e64a7"
+    "amd64": "78e84a3caf0dd9f8d03d270612db2c1aef0dbae19f928d0ce2502a13c45f6bc6",
+    "arm64": "e9dd0bc10a4b87064d0660cf995c81bf5a779f2f313dab8a2a4e2f398b592218"
   },
   "helpers": {
     "guarded_update.py": "6f318ca0f14789d5efcbf6a85b9712c55c240423ba4d5cf2cc760f985ccf43f9",
     "route_guard.py": "bda39fa92512ae004fe671178e02ecd014b64e9edc2b39b1824ecff05550afcf"
   },
   "changes": [
-    "Главная страница показывает состояние автоматического анализа zapret2. Добавлены выборки внешнего трафика LAN наряду с WG и наблюдение закреплённых UDP/443 без ответа."
+    "Для локального DNS доступен порт 15353, чтобы освободить 5353 для WebRTC. В панели Телемоста отдельно видны состояния публикации и приёма медиаданных."
   ]
 }
