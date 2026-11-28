@@ -7,7 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 )
 
 var (
@@ -125,6 +127,12 @@ func main() {
 		if err := stopOlcServices(); err != nil {
 			Log("ERROR", "Остановка отключённого модуля: %v", err)
 		}
+	}
+	if !Sim {
+		z := mod("zapret").(*zapret2)
+		stopped := make(chan os.Signal, 1)
+		signal.Notify(stopped, syscall.SIGTERM, os.Interrupt)
+		go func() { <-stopped; z.drainProbe(); os.Exit(0) }()
 	}
 	routeAgentRunning = true
 	startRoutes()

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,6 +20,7 @@ type zStrategy struct {
 }
 type zapret2 struct {
 	probeMu               sync.Mutex
+	stopping              atomic.Bool
 	checkedAt             time.Time
 	videoHost, videoJS    string
 	videoAt, videoAttempt time.Time
@@ -145,9 +147,21 @@ func probeResourcesAvailable() string {
 	return ""
 }
 
+// A normal service stop must allow an active probe to release its nft table
+// and policy rule before the agent exits.
+func (m *zapret2) drainProbe() {
+	m.stopping.Store(true)
+	m.probeMu.Lock()
+	m.probeMu.Unlock()
+}
+
 func (m *zapret2) check() (result siteCheck) {
 	m.probeMu.Lock()
 	defer m.probeMu.Unlock()
+	if m.stopping.Load() {
+		result.setupError = "Агент останавливается"
+		return
+	}
 	var rows [][]string
 	defer func() {
 		m.mu.Lock()
@@ -205,12 +219,19 @@ func (m *zapret2) check() (result siteCheck) {
 			defer probes.Done()
 			slots <- struct{}{}
 			defer func() { <-slots }()
+			if m.stopping.Load() {
+				return
+			}
 			var detail string
 			rows[i], detail, passed[i] = m.checkTarget(address, target)
 			report[i] = reportTarget(target, i) + " | " + detail
 		}(i, target)
 	}
 	probes.Wait()
+	if m.stopping.Load() {
+		result.setupError = "Агент останавливается"
+		return
+	}
 	result.report = report
 	result.results = make(map[string]bool, len(targets))
 	for i, ok := range passed {

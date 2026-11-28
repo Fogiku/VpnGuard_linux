@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const Version = "1.9.65"
+const Version = "1.9.66"
 
 var (
 	DataDir string
