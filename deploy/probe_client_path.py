@@ -1,5 +1,6 @@
 """Correlate a live HTTPS control or Discord Gateway connection with an IPv4 gateway snapshot."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import http.client
 import json
 import math
@@ -14,6 +15,10 @@ from datetime import datetime, timezone
 def observe(peer, tls, sudo):
     src, sport = tls.getsockname()
     dst, dport = tls.getpeername()
+    return observe_tuple(peer, src, sport, dst, dport, sudo)
+
+
+def observe_tuple(peer, src, sport, dst, dport, sudo):
     cmd = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
            "-o", "ConnectTimeout=5", peer]
     if sudo:
@@ -74,20 +79,29 @@ def measure_discord(gateway, sudo, host="gateway.discord.gg"):
     try:
         address = socket.getaddrinfo(host, 443, socket.AF_INET, socket.SOCK_STREAM)[0][4]
         with socket.create_connection(address, timeout=7) as raw:
-            with connect(f"wss://{host}/?v=10&encoding=json", sock=raw, proxy=None,
-                         open_timeout=7, close_timeout=2, max_size=16384) as ws:
-                # Observe this socket even if the gateway's first message isn't Hello.
+            endpoints = (*raw.getsockname(), *raw.getpeername())
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                snapshot = pool.submit(observe_tuple, gateway, *endpoints, sudo)
                 try:
-                    result["discord_gateway"] = "hello" if discord_hello(ws.recv(timeout=10)) else "unexpected_message"
-                except ConnectionClosed:
-                    result["discord_gateway"] = "closed_before_hello"
-                    return result
-                except TimeoutError:
-                    result["discord_gateway"] = "timeout"
-                result["flow"] = observe(gateway, ws.socket, sudo)
+                    with connect(f"wss://{host}/?v=10&encoding=json", sock=raw, proxy=None,
+                                 open_timeout=7, close_timeout=2, max_size=16384) as ws:
+                        # Observe this socket even if the gateway's first message isn't Hello.
+                        try:
+                            result["discord_gateway"] = "hello" if discord_hello(ws.recv(timeout=10)) else "unexpected_message"
+                        except ConnectionClosed:
+                            result["discord_gateway"] = "closed_before_hello"
+                        except TimeoutError:
+                            result["discord_gateway"] = "timeout"
+                finally:
+                    result["flow"] = snapshot.result()
     except (OSError, WebSocketException) as exc:
         if result["discord_gateway"] == "unobserved":
-            result["discord_gateway"] = "connection_error"
+            if isinstance(exc, TimeoutError):
+                result["discord_gateway"] = "timeout"
+            elif isinstance(exc, ConnectionResetError):
+                result["discord_gateway"] = "connection_reset"
+            else:
+                result["discord_gateway"] = "connection_error"
         result["error"] = type(exc).__name__
     return result
 

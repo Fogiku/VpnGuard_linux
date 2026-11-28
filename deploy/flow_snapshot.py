@@ -166,6 +166,17 @@ def correlate(result, before, after):
     return result
 
 
+def profile_revision():
+    try:
+        with open('/etc/vpnguard/nfqws2.args', 'rb') as profile:
+            raw = profile.read(65537)
+        if 0 < len(raw) <= 65536:
+            return hashlib.sha256(raw).hexdigest()
+    except OSError:
+        pass
+    return None
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--match-tcp', nargs=4, metavar=('SRC', 'SPORT', 'DST', 'DPORT'))
@@ -176,9 +187,13 @@ if __name__ == '__main__':
         sport, dport = int(sport), int(dport)
         if not (1 <= sport <= 65535 and 1 <= dport <= 65535):
             parser.error('invalid port')
+        profile = profile_revision()
         before = rules_fingerprint()
         result = match_tcp(snapshot(), src, sport, dst, dport)
         after = rules_fingerprint()
-        print(json.dumps(correlate(result, before, after)))
+        result = correlate(result, before, after)
+        if result.get("pinnedExit") == "zapret" and profile and profile == profile_revision():
+            result["profileSHA256"] = profile
+        print(json.dumps(result))
     else:
         print(json.dumps(snapshot()))

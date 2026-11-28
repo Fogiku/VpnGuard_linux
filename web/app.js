@@ -98,7 +98,7 @@ function showZapretDraft(draft) {
     return trial.finished + ' · ' + outcome + '. ' + trial.detail;
   };
   modal(`<div class="sec">${draft.status === 'draft' ? 'Черновик стратегии zapret2' : 'Нужно измерение'}</div>
-    <p>${esc(draft.reason)}</p>${draft.status === 'draft' ? `<p class="sub">${esc(draft.created)} · ${esc(draft.model)} · ${esc(draft.scenario)} · профиль ${esc(draft.base)}</p><label>Исходные параметры</label><pre>${esc(draft.original)}</pre>
+    <p>${esc(draft.reason)}</p>${draft.status === 'draft' ? `<p class="sub">${esc(draft.created)} · ${esc(draft.model)} · ${esc(draft.scenario)} · профиль ${esc(draft.base)}</p>${draft.flowSamples?.length ? `<p>Клиентская проба Discord · TCP закреплён за zapret · HTTPS-контроль пройден</p><ul>${draft.flowSamples.map(s => `<li>${esc(s.utc)} · ${esc(s.outcome)}</li>`).join('')}</ul>` : ''}<label>Исходные параметры</label><pre>${esc(draft.original)}</pre>
     <label>Предложенные параметры</label><pre>${esc(draft.args)}</pre><p>SHA-256 ${esc(draft.sha256)}</p>
     <button id="draft-test">Испытать локально</button><button id="draft-save">Скачать черновик</button><button id="draft-base">Скачать исходный профиль</button><p id="draft-result" role="status">${esc(trialText(draft.trial))}</p>
     <label for="draft-comparison">Парный отчёт compare_client_profiles.py (JSON)</label><input type="file" id="draft-comparison" accept=".json,application/json"><div id="draft-pairs" role="status"></div>` : ''}

@@ -27,7 +27,8 @@ type draftTrial struct {
 }
 
 type zapretDraft struct {
-	Trial *draftTrial `json:"trial,omitempty"`
+	FlowSamples []discordSample `json:"flowSamples,omitempty"`
+	Trial       *draftTrial     `json:"trial,omitempty"`
 	zapretProposal
 	Base       string `json:"base,omitempty"`
 	Scenario   string `json:"scenario,omitempty"`
@@ -124,7 +125,7 @@ func compileDraftSteps(steps []string) (string, error) {
 
 var draftRequest sync.Mutex
 
-func generateZapretDraft(base, scenario, symptom, model, endpoint string) (zapretDraft, error) {
+func generateZapretDraft(base, scenario, symptom, model, endpoint string, samples ...discordSample) (zapretDraft, error) {
 	var draft zapretDraft
 	for _, p := range builtinZapretStrategies() {
 		if p.Name == base {
@@ -151,7 +152,12 @@ func generateZapretDraft(base, scenario, symptom, model, endpoint string) (zapre
 		return draft, errors.New("черновик занят, повторите генерацию позже")
 	}
 	defer draftRequest.Unlock()
-	input, _ := json.Marshal(map[string]any{"baseline": base, "scenario": scenario, "device_observation": symptom, "diagnostics": readDiagnosticSnapshotV1()})
+	context := map[string]any{"baseline": base, "scenario": scenario, "device_observation": symptom, "diagnostics": readDiagnosticSnapshotV1()}
+	if len(samples) > 0 {
+		context["client_tcp_observations"] = samples
+		draft.FlowSamples = samples
+	}
+	input, _ := json.Marshal(context)
 	const instruction = `Предложи один экспериментальный профиль для указанной проблемы. Верни JSON с полями status, steps и reason. Для status=draft составь новый упорядоченный список из шагов fake, multisplit, multidisorder, hostfakesplit, без повторов. Запрещено копировать готовые списки [fake], [fake,multisplit], [multidisorder], [hostfakesplit]. В reason кратко по-русски опиши гипотезу и что измерить на устройстве. Это гипотеза без измерения эффективности. Если данных мало, верни status=need_data, пустой steps и укажи недостающий замер.`
 	payload, _ := json.Marshal(map[string]any{"model": model, "stream": false, "format": "json", "keep_alive": "0s", "options": map[string]int{"num_ctx": 2048, "num_predict": 384, "num_thread": 2}, "messages": []map[string]string{{"role": "system", "content": instruction}, {"role": "user", "content": string(input)}}})
 	client := http.Client{Timeout: 2 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
