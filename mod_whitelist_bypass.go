@@ -42,6 +42,7 @@ func (b *wbServer) Tick() {
 	}
 	active := props["ActiveState"] == "active"
 	state := props["ActiveState"]
+	level := 0
 	var kv [][2]string
 	if active {
 		state = "Creator запущен"
@@ -50,6 +51,22 @@ func (b *wbServer) Tick() {
 		}
 		participants := "нет данных"
 		if id := props["InvocationID"]; len(id) == 32 {
+			for _, channel := range []struct{ id, label string }{{"pub", "Публикация WebRTC"}, {"sub", "Приём WebRTC"}} {
+				pattern := "\\[" + channel.id + "\\] connection state: "
+				line, rc := run("journalctl", "--quiet", "--no-pager", "-o", "cat", "-n", "1", "--grep", pattern, "_SYSTEMD_INVOCATION_ID="+id)
+				_, v, ok := strings.Cut(line, "["+channel.id+"] connection state: ")
+				v = strings.TrimSpace(v)
+				if rc != 0 || !ok {
+					v = "нет данных"
+				}
+				kv = append(kv, [2]string{channel.label, v})
+				switch v {
+				case "closed", "failed", "disconnected", "connecting":
+					level = 1
+					state = "Медиаканал Телемоста не готов"
+					active = false
+				}
+			}
 			log, rc := run("journalctl", "--quiet", "--no-pager", "-o", "cat", "-n", "1", "--grep", "Participant (joined|left):.*total=[0-9]+", "_SYSTEMD_INVOCATION_ID="+id)
 			if match := wbParticipants.FindStringSubmatch(strings.TrimSpace(log)); rc == 0 && len(match) == 2 {
 				participants = match[1]
@@ -63,7 +80,6 @@ func (b *wbServer) Tick() {
 	if _, err := strconv.ParseUint(props["NRestarts"], 10, 64); err == nil {
 		kv = append(kv, [2]string{"Автоперезапуски", props["NRestarts"]})
 	}
-	level := 0
 	if state == "failed" {
 		level = 2
 	}

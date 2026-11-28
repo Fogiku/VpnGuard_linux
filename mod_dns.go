@@ -30,10 +30,14 @@ func (m *dnsModule) Color() string         { return "#49b8e8" }
 func (m *dnsModule) Order() int            { return 15 }
 func (m *dnsModule) Period() time.Duration { return 10 * time.Second }
 func dnsAddress() string {
-	if Sim {
-		return "127.0.0.1:15353"
+	port := cfg("dns.loopbackPort", "")
+	if port != "5353" && port != "15353" {
+		port = "5353"
+		if Sim {
+			port = "15353"
+		}
 	}
-	return "127.0.0.1:5353"
+	return "127.0.0.1:" + port
 }
 
 func initDNS() {
@@ -115,6 +119,7 @@ func (m *dnsModule) tickLocked() {
 }
 func (m *dnsModule) Fields() []Field {
 	return []Field{
+		fb("dns.loopbackPort", "Порт DNS на loopback", "select", strings.TrimPrefix(dnsAddress(), "127.0.0.1:"), "15353 освобождает порт 5353 для mDNS/WebRTC. DNS клиентов LAN и WG продолжает слушать порт 53.", Opt{"5353", "5353"}, Opt{"15353", "15353"}),
 		fb("dns.enabled", "DNS и TTL-кэш", "bool", "true", "Общий выключатель локального и клиентского DNS. Отключение остановит DNS для использующих его клиентов."),
 		fb("dns.upstream", "Вышестоящий DNS (IPv4:порт)", "text", "127.0.0.53:53", "По умолчанию системный resolved с настройками MeduzaVPN/провайдера. Кэш обновляет IPv4-адреса доменов в правилах; AAAA локальный прокси отклоняет."),
 		fb("dns.serveWG", "DNS для WireGuard-клиентов", "bool", "false", "Адрес сервера WG, порт 53. Запросы принимаются только через WG-интерфейс из его подсети."),
@@ -123,6 +128,28 @@ func (m *dnsModule) Fields() []Field {
 	}
 }
 func (m *dnsModule) Set(key, value string) error {
+	if key == "dns.loopbackPort" {
+		if value != "5353" && value != "15353" {
+			return fmt.Errorf("допустимые порты: 5353 и 15353")
+		}
+		m.tk.Lock()
+		defer m.tk.Unlock()
+		addr := "127.0.0.1:" + value
+		if m.stop == nil || m.address == addr {
+			return setCfg(key, value)
+		}
+		stop, err := startDNSListener(addr, routingDNS, dnsApplyAnswer)
+		if err != nil {
+			return err
+		}
+		if err = setCfg(key, value); err != nil {
+			stop()
+			return err
+		}
+		m.stop()
+		m.stop, m.address = stop, addr
+		return nil
+	}
 	if key != "dns.enabled" && key != "dns.upstream" && key != "dns.serveWG" && key != "dns.allowLAN" && key != "dns.lanAddress" {
 		return errNoField
 	}
