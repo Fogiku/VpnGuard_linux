@@ -1,15 +1,15 @@
 {
-  "version": "1.9.63",
-  "source": "2e76998eefd797f6c188caf89e7265ac19c77f1b",
+  "version": "1.9.64",
+  "source": "650ee5b2aeb0e05b71b909fc7511860f61eac30c",
   "sha256": {
-    "amd64": "46395f25110d2aa980161a1f0b825d2de709dfac86dfd461cfda19a68ba200f0",
-    "arm64": "6d82728aeb59d9c92b9216801de1daf8a30a6acde5e651aec061f48477ec9409"
+    "amd64": "6cd2edb988edbe024325c86f44b66515f749055b77a00a45dc3dcfa969878a28",
+    "arm64": "4e7e5f8de8a606d13f1a79df1b52659aa3b6b05be60a78aa5ccc53f89f3e64a7"
   },
   "helpers": {
     "guarded_update.py": "6f318ca0f14789d5efcbf6a85b9712c55c240423ba4d5cf2cc760f985ccf43f9",
     "route_guard.py": "bda39fa92512ae004fe671178e02ecd014b64e9edc2b39b1824ecff05550afcf"
   },
   "changes": [
-    "Результаты последней попытки автоматического переключения zapret2 сохраняются при перезапуске и входят в скачиваемый отчёт диагностики."
+    "Главная страница показывает состояние автоматического анализа zapret2. Добавлены выборки внешнего трафика LAN наряду с WG и наблюдение закреплённых UDP/443 без ответа."
   ]
 }
