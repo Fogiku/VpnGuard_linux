@@ -1,15 +1,15 @@
 {
-  "version": "1.9.65",
-  "source": "16af408282cc54597f1da5262b3bdbbeffceac4c",
+  "version": "1.9.66",
+  "source": "eb238c7fccc60a298a61b6abe8a0b965f705d0db",
   "sha256": {
-    "amd64": "78e84a3caf0dd9f8d03d270612db2c1aef0dbae19f928d0ce2502a13c45f6bc6",
-    "arm64": "e9dd0bc10a4b87064d0660cf995c81bf5a779f2f313dab8a2a4e2f398b592218"
+    "amd64": "3dbce4d2af92349d099ba0bf2be42e24c6ae64c002ff40011731fc974daa3cf6",
+    "arm64": "5284e5046296e4b40bcb6424d4cf2fc51ae66a86efbe27e2702448dfc6b90cc7"
   },
   "helpers": {
     "guarded_update.py": "6f318ca0f14789d5efcbf6a85b9712c55c240423ba4d5cf2cc760f985ccf43f9",
     "route_guard.py": "bda39fa92512ae004fe671178e02ecd014b64e9edc2b39b1824ecff05550afcf"
   },
   "changes": [
-    "Для локального DNS доступен порт 15353, чтобы освободить 5353 для WebRTC. В панели Телемоста отдельно видны состояния публикации и приёма медиаданных."
+    "При штатной остановке агент дожидается удаления временной таблицы nftables и правила 1198 проверки zapret. Ожидающие проверки сайтов пропускаются при завершении."
   ]
 }
