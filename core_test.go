@@ -19,6 +19,9 @@ func setup(t *testing.T) *simSys {
 		})
 	}
 	Sim = true
+	limMu.Lock()
+	delete(limits, "zapret.pick")
+	limMu.Unlock()
 	sim := newSim()
 	S = sim
 	cfgMap = map[string]string{}

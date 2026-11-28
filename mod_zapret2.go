@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -266,8 +267,23 @@ func (m *zapret2) pick() bool {
 	if !m.apply(best) {
 		return false
 	}
-	setCfg("zapret.picked", m.strat[best].Name)
-	m.check()
+	verified := m.check()
+	if verified.setupError != "" || verified.passed == 0 || !active(zUnit) {
+		if previous >= 0 && previous != best {
+			m.apply(previous)
+		}
+		m.startErr = "Итоговая проверка стратегии: " + verified.summary()
+		return false
+	}
+	if err := setCfg("zapret.picked", m.strat[best].Name); err != nil {
+		if previous >= 0 && previous != best {
+			m.apply(previous)
+		}
+		m.startErr = err.Error()
+		return false
+	}
+	m.checkedAt = time.Now()
+	m.recordHealth(verified)
 	Decide("INFO", "zapret2: подобрана стратегия «%s» (%s сайтов)", m.strat[best].Name, m.strat[best].Last)
 	return true
 }
@@ -288,12 +304,21 @@ func (m *zapret2) Tick() {
 		m.setSt(-1, false, "Выключен", "YouTube и Discord идут по правилу резерва")
 		return
 	}
-	if time.Now().Before(m.retryAt) {
+	mode := cfg("zapret.recoveryMode", "any")
+	if mode != "observe" && time.Now().Before(m.retryAt) {
 		m.setSt(2, false, "Нет рабочей стратегии", "повторный подбор в "+m.retryAt.Format("15:04"))
 		return
 	}
 	i := m.index(m.want())
 	if i < 0 {
+		if mode == "observe" || cfg("zapret.strategy", "") != "" {
+			m.setSt(1, false, "Требуется выбор стратегии", "Выберите стратегию или запустите подбор вручную")
+			return
+		}
+		if !allow("zapret.pick", cfgInt("zapret.recoveryLimit", 3), time.Hour) {
+			m.setSt(1, false, "Достигнут лимит автоподбора", "Следующая попытка после освобождения часового лимита")
+			return
+		}
 		if !m.pick() {
 			if m.startErr != "" {
 				m.setSt(2, false, "Ошибка запуска или проверки", m.startErr)
@@ -315,30 +340,57 @@ func (m *zapret2) Tick() {
 	}
 	check := m.check()
 	if check.setupError != "" {
+		m.fails = 0
 		m.setSt(1, m.Status().Up && active(zUnit), "Проверка сайтов недоступна", check.setupError)
 		return
 	}
 	m.checkedAt = time.Now()
+	m.recordHealth(check)
+	if check.passed == check.total {
+		m.fails = 0
+		return
+	}
+	if !m.recoveryDue(mode, check) {
+		return
+	}
+	if !allow("zapret.pick", cfgInt("zapret.recoveryLimit", 3), time.Hour) {
+		status := m.Status()
+		m.setSt(status.Level, status.Up, status.State, "Достигнут часовой лимит автоподбора", status.KV...)
+		return
+	}
+	Decide("WARN", "zapret2: условие восстановления выполнено %d проверок подряд → переподбор стратегии", m.fails)
+	m.fails = 0
+	if !m.pick() {
+		m.setSt(2, false, "Восстановление не завершено", m.startErr)
+	}
+}
+
+func (m *zapret2) recordHealth(check siteCheck) {
 	n, all := check.passed, check.total
 	kv := [][2]string{{"Стратегия", m.running}, {"Сайты", fmt.Sprintf("%d из %d открываются", n, all)}, {"Служба", zUnit}}
-	if n == all && active(zUnit) {
-		m.fails = 0
+	if !active(zUnit) {
+		m.setSt(2, false, "nfqws2 не запущен", "", kv...)
+		return
+	}
+	if n == all {
 		m.setSt(0, true, "Работает", "", kv...)
 		return
 	}
-	m.fails++
 	if n > 0 {
 		m.setSt(1, true, "Часть сайтов не открывается", "", kv...)
 	} else {
 		m.setSt(2, false, "Сайты не открываются", "стратегия «"+m.running+"» перестала работать", kv...)
 	}
-	if m.fails >= 2 && cfg("zapret.strategy", "") == "" && allow("zapret.pick", 3, time.Hour) {
-		Decide("WARN", "zapret2: сайты не открываются %d проверки подряд → переподбор стратегии", m.fails)
+}
+
+func (m *zapret2) recoveryDue(mode string, check siteCheck) bool {
+	eligible := mode == "any" && check.passed < check.total || mode == "all" && check.passed == 0
+	if !eligible || check.total == 0 || check.setupError != "" || cfg("zapret.strategy", "") != "" {
 		m.fails = 0
-		if m.pick() {
-			m.setSt(0, true, "Работает", "", [2]string{"Стратегия", m.running})
-		}
+		return false
 	}
+	m.fails++
+	return m.fails >= cfgInt("zapret.recoveryFailures", 2)
 }
 
 func (m *zapret2) adoptRunning(i int) bool {
@@ -362,6 +414,9 @@ func (m *zapret2) Fields() []Field {
 	}
 	return []Field{fb("zapret.enabled", "zapret2 включён", "bool", "true", ""),
 		fb("zapret.strategy", "Стратегия", "select", "", "В режиме «авто» агент переподбирает её сам, когда сайты перестают открываться", o...),
+		fb("zapret.recoveryMode", "Автоподбор при сбое", "select", "any", "Действует при автоматическом выборе стратегии. Проверки выполняются на шлюзе.", Opt{"observe", "Только наблюдать"}, Opt{"any", "Если недоступна хотя бы одна цель"}, Opt{"all", "Если недоступны все цели"}),
+		fb("zapret.recoveryFailures", "Проверок подряд до автоподбора", "number", "2", "От 1 до 10."),
+		fb("zapret.recoveryLimit", "Автоподборов за час", "number", "3", "От 1 до 10 за скользящий час работы агента. Ручной подбор доступен отдельно."),
 		fb("zapret.targets", "Сайты для проверки, через запятую", "text", zapretDefaultTargets, ""),
 		fb("zapret.healthCheckMin", "Проверять сайты каждые, мин", "number", "10", "Ручная проверка и подбор запускаются сразу; загрузка JS плеера расходует трафик."),
 		fb("zapret.videoCheck", "Проверять видеосервер и скорость YouTube", "bool", "true", "Скорость оценивается по JS плеера, как в Windows; минимум 1,5 Мбит/с. Это не проверка воспроизведения ролика."),
@@ -370,7 +425,23 @@ func (m *zapret2) Fields() []Field {
 		fb("zapret.retryMin", "Повтор подбора после неудачи, мин", "number", "120", "")}
 }
 func (m *zapret2) Set(k, v string) error {
-	setCfg(k, v)
+	m.tk.Lock()
+	defer m.tk.Unlock()
+	switch k {
+	case "zapret.recoveryMode":
+		if v != "observe" && v != "any" && v != "all" {
+			return errors.New("неизвестный режим автоподбора")
+		}
+	case "zapret.recoveryFailures", "zapret.recoveryLimit":
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 10 {
+			return errors.New("допустимы целые числа от 1 до 10")
+		}
+	}
+	if err := setCfg(k, v); err != nil {
+		return err
+	}
+	m.fails = 0
 	if k == "zapret.hosts" || k == "zapret.exclude" {
 		_ = S.WriteFile("/etc/vpnguard/zapret-"+strings.TrimPrefix(k, "zapret.")+".txt", v+"\n", 0o644)
 		run("systemctl", "restart", zUnit)
@@ -424,8 +495,7 @@ func (m *zapret2) Do(id string, a map[string]string) (string, error) {
 	i := m.index(a["row"])
 	switch id {
 	case "pick":
-		m.retryAt = time.Time{}
-		go func() { m.tk.Lock(); m.pick(); m.tk.Unlock(); m.Tick() }()
+		go func() { m.tk.Lock(); m.retryAt = time.Time{}; m.pick(); m.tk.Unlock(); m.Tick() }()
 		return "Подбор запущен, результаты появятся в таблице", nil
 	case "check":
 		check := m.check()
@@ -500,6 +570,8 @@ func (m *zapret2) Checks() []Check {
 				return Finding{OK: check.passed == check.total, Text: check.summary(), Report: check.report, Hint: "Подробности по каждой цели есть в отчёте проверки"}
 			},
 			Fix: func() (string, error) {
+				m.tk.Lock()
+				defer m.tk.Unlock()
 				m.retryAt = time.Time{}
 				if m.pick() {
 					return "подобрана стратегия «" + m.running + "»", nil
