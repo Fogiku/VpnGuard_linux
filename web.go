@@ -296,6 +296,13 @@ func startWeb(listen string) error {
 		}
 		return inboundOlc.clientConfig(str(b, "name"))
 	})
+	api("zapret-admit-reserve", true, func(b map[string]json.RawMessage) (any, error) {
+		var r reserveReport
+		if err := json.Unmarshal(b["report"], &r); err != nil {
+			return nil, err
+		}
+		return mod("zapret").(*zapret2).admitReserve(r)
+	})
 	api("discord-flow-draft", true, func(b map[string]json.RawMessage) (any, error) {
 		var samples []discordSample
 		if err := json.Unmarshal(b["samples"], &samples); err != nil {

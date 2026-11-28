@@ -6,7 +6,7 @@ usage() {
   cat <<'HELP'
 Usage: run_client_comparison.sh BASE_NETNS BASE_FILE CANDIDATE_NETNS CANDIDATE_FILE
          --control HTTPS_URL [--video-id VIDEO] [--discord] [--runs 2..5]
-         [--channel chromium|chrome|msedge] [--egress-v4 URL BASE_CIDR CANDIDATE_CIDR]
+         [--reserve-gateway SSH_ALIAS] [--channel chromium|chrome|msedge] [--egress-v4 URL BASE_CIDR CANDIDATE_CIDR]
          [--egress-v6 URL BASE_CIDR CANDIDATE_CIDR]
 Creates a new lab-* directory in the working directory and prints the path to comparison.json.
 HELP
@@ -22,9 +22,13 @@ done
 [[ $base_ns != "$candidate_ns" ]] || fail "Select two distinct namespaces"
 [[ -f $base_file && -r $base_file && -f $candidate_file && -r $candidate_file ]] || fail "Cannot read both profile files"
 if cmp -s -- "$base_file" "$candidate_file"; then fail "Select two different profile revisions"; fi
+reserve_gateway=
 shared=(); base_extra=(); candidate_extra=()
 while (( $# )); do
   case $1 in
+    --reserve-gateway)
+      (( $# >= 2 )) && [[ $2 =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$ ]] || fail "Invalid gateway SSH alias"
+      reserve_gateway=$2; shift 2 ;;
     --discord) shared+=("$1"); shift ;;
     --control|--video-id|--channel|--runs)
       (( $# >= 2 )) || fail "Missing value for $1"
@@ -69,3 +73,7 @@ done
 "$python" "$probe_dir/compare_client_profiles.py" "$session/base.json" "$session/candidate.json" > "$session/comparison.tmp"
 mv -- "$session/comparison.tmp" "$session/comparison.json"
 printf '%s\n' "$session/comparison.json"
+
+if [[ -n $reserve_gateway ]]; then
+  "$python" "$probe_dir/submit_profile_reserve.py" "$reserve_gateway" "$session/comparison.json" >&2
+fi

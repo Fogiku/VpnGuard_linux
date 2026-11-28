@@ -74,7 +74,7 @@ func discordFlowDraft(samples []discordSample) (zapretDraft, error) {
 	if err != nil {
 		return zapretDraft{}, err
 	}
-	for _, base := range builtinZapretStrategies() {
+	for _, base := range draftBaselines() {
 		if draftHash(base.Args) != samples[0].Profile || raw != base.Args+"\n" {
 			continue
 		}

@@ -13,6 +13,7 @@ import (
 var flowSnapshotScript string
 
 type flowRow struct {
+	SeenReply       *bool   `json:"seenReply,omitempty"`
 	Protocol        string  `json:"protocol"`
 	Source          string  `json:"source"`
 	Destination     string  `json:"destination"`
@@ -29,11 +30,13 @@ type flowModule struct {
 	installMu     sync.Mutex
 	installStatus string
 	base
-	rows      []flowRow
-	at        time.Time
-	truncated bool
-	dpi       *Table
-	events    *flowEventSession
+	profileArgs string
+	unanswered  map[dpiRowKey]bool
+	rows        []flowRow
+	at          time.Time
+	truncated   bool
+	dpi         *Table
+	events      *flowEventSession
 }
 
 var flowsMod = &flowModule{}
@@ -79,11 +82,15 @@ func (m *flowModule) Tick() {
 		Truncated bool      `json:"truncated"`
 	}
 	var at time.Time
+	profileArgs := ""
 	level, status, why := -1, "Выключен", "Снимки потоков не собираются"
 	if cfgBool("flows.enabled", false) {
 		if Sim {
 			level, status, why = 1, "Имитация", "Реальный conntrack в имитации не читается"
 		} else {
+			if cfgBool("zapret.passiveDraft", false) {
+				profileArgs, _ = S.ReadFile(zArgs)
+			}
 			output, code := S.Run(3*time.Second, flowSnapshotScript, "python3", "-")
 			if code != 0 || json.Unmarshal([]byte(output), &view) != nil || len(view.Rows) > 512 {
 				level, status, why = 1, "Нет снимка", "Не удалось прочитать conntrack; нужны Python 3 и CAP_NET_ADMIN."
@@ -101,6 +108,9 @@ func (m *flowModule) Tick() {
 		}
 	}
 	m.mu.Lock()
+	stableProfile := profileArgs != "" && profileArgs == m.profileArgs
+	m.profileArgs = profileArgs
+	m.unanswered = repeatedUnanswered(m.rows, view.Rows, !m.truncated && !view.Truncated && !m.at.IsZero() && at.After(m.at) && at.Sub(m.at) <= time.Minute)
 	m.rows, m.at, m.truncated = view.Rows, at, view.Truncated
 	m.bindings, m.dpi = bindings, dpi
 	if dpi == nil {
@@ -113,6 +123,9 @@ func (m *flowModule) Tick() {
 	}
 	m.mu.Unlock()
 	m.setSt(level, false, status, why)
+	if stableProfile {
+		m.maybeDraftFromPending(profileArgs)
+	}
 }
 
 type flowCounts struct {
@@ -175,7 +188,11 @@ func (m *flowModule) Tables() []Table {
 			}
 			id = strconv.FormatUint(uint64(*r.ConntrackID), 10)
 		}
-		rows = append(rows, []string{strconv.Itoa(i), r.Protocol, fmt.Sprintf("%s:%d", r.Source, r.SourcePort), fmt.Sprintf("%s:%d", r.Destination, r.DestinationPort), fmt.Sprintf("0x%08x", r.Mark), app, id, strconv.Itoa(int(r.Zone)), observedAt, flowPinLabel(r.Mark, fixedResources)})
+		signal := "—"
+		if r.ConntrackID != nil && m.unanswered[dpiKey(r)] {
+			signal = "Нет ответа в двух снимках"
+		}
+		rows = append(rows, []string{strconv.Itoa(i), r.Protocol, fmt.Sprintf("%s:%d", r.Source, r.SourcePort), fmt.Sprintf("%s:%d", r.Destination, r.DestinationPort), fmt.Sprintf("0x%08x", r.Mark), app, id, strconv.Itoa(int(r.Zone)), observedAt, flowPinLabel(r.Mark, fixedResources), signal})
 	}
 	note := "Метка nDPI относится к последней выборке и подтверждённому поколению conntrack. Unknown означает, что nDPI обработал поток и вернул Unknown. Для привязки включите наблюдение жизненного цикла и сбор nDPI. Маршруты не изменяются."
 	if !m.at.IsZero() {
@@ -188,7 +205,7 @@ func (m *flowModule) Tables() []Table {
 			note += " Нет свежих данных подписки на события."
 		}
 	}
-	tables := []Table{{Title: "Соединения IPv4", Cols: []string{"ID", "Протокол", "Источник", "Назначение", "ct mark", "Метка nDPI", "Conntrack ID", "Zone", "Наблюдение nDPI", "Закрепление (биты 16–23)"}, Rows: rows, Empty: "Нет снимка", Note: note + " Для дополнительных выходов показан код закрепления. Фактический интерфейс пакета проверяется отдельно. Conntrack ID может повторно использоваться; он не доказывает непрерывность соединения между снимками."}}
+	tables := []Table{{Title: "Соединения IPv4", Cols: []string{"ID", "Протокол", "Источник", "Назначение", "ct mark", "Метка nDPI", "Conntrack ID", "Zone", "Наблюдение nDPI", "Закрепление (биты 16–23)", "Наблюдение zapret"}, Rows: rows, Empty: "Нет снимка", Note: note + " Для дополнительных выходов показан код закрепления. Фактический интерфейс пакета проверяется отдельно. Conntrack ID может повторно использоваться; он не доказывает непрерывность соединения между снимками."}}
 	if m.dpi != nil {
 		tables = append(tables, *m.dpi, dpiHistoryTable(m.dpiHistory))
 	}

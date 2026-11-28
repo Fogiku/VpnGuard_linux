@@ -49,7 +49,11 @@ def flow(data):
     zone = attrs.get(18, b'\0\0')
     if (identity is not None and len(identity) != 4) or len(zone) != 2:
         raise ValueError('invalid conntrack identity')
-    return {'protocol': 'tcp' if number == b'\x06' else 'udp',
+    status = attrs.get(3)
+    if status is not None and len(status) != 4:
+        raise ValueError('invalid conntrack status')
+    seen_reply = None if status is None else bool(struct.unpack('!I', status)[0] & 2)
+    return {'seenReply': seen_reply, 'protocol': 'tcp' if number == b'\x06' else 'udp',
             'source': socket.inet_ntop(socket.AF_INET, ip[1]),
             'destination': socket.inet_ntop(socket.AF_INET, ip[2]),
             'sourcePort': struct.unpack('!H', proto[2])[0],

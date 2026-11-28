@@ -127,13 +127,13 @@ var draftRequest sync.Mutex
 
 func generateZapretDraft(base, scenario, symptom, model, endpoint string, samples ...discordSample) (zapretDraft, error) {
 	var draft zapretDraft
-	for _, p := range builtinZapretStrategies() {
+	for _, p := range draftBaselines() {
 		if p.Name == base {
 			draft.Original = p.Args
 			break
 		}
 	}
-	if draft.Original == "" || (scenario != "youtube" && scenario != "discord") || (symptom != "unknown" && symptom != "failed" && symptom != "intermittent") {
+	if draft.Original == "" || (scenario != "youtube" && scenario != "discord") || (symptom != "unknown" && symptom != "failed" && symptom != "intermittent" && symptom != "tcp_without_observed_reply") {
 		return draft, errors.New("проверьте исходный профиль, сценарий и наблюдение")
 	}
 	if symptom == "unknown" {
@@ -153,6 +153,10 @@ func generateZapretDraft(base, scenario, symptom, model, endpoint string, sample
 	}
 	defer draftRequest.Unlock()
 	context := map[string]any{"baseline": base, "scenario": scenario, "device_observation": symptom, "diagnostics": readDiagnosticSnapshotV1()}
+	if counts := flowsMod.unansweredByApp(); len(counts) > 0 {
+		context["zapret_tcp_without_observed_reply_two_snapshots"] = counts
+	}
+	context["services_to_preserve"] = []string{"youtube", "discord_gateway"}
 	if len(samples) > 0 {
 		context["client_tcp_observations"] = samples
 		draft.FlowSamples = samples
@@ -191,7 +195,7 @@ func generateZapretDraft(base, scenario, symptom, model, endpoint string, sample
 	if err != nil {
 		return draft, err
 	}
-	for _, p := range builtinZapretStrategies() {
+	for _, p := range draftBaselines() {
 		if p.Args == args {
 			return draft, errors.New("модель повторила встроенный профиль; новый черновик не создан")
 		}

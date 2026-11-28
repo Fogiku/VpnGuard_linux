@@ -13,7 +13,10 @@ import (
 	"time"
 )
 
-type zStrategy struct{ Name, Args, Last string }
+type zStrategy struct {
+	Name, Args, Last string
+	Qualified        bool `json:",omitempty"`
+}
 type zapret2 struct {
 	probeMu               sync.Mutex
 	checkedAt             time.Time
@@ -111,6 +114,7 @@ func (m *zapret2) apply(i int) bool {
 type siteCheck struct {
 	passed, total int
 	setupError    string
+	results       map[string]bool
 	report        []string
 }
 
@@ -208,7 +212,9 @@ func (m *zapret2) check() (result siteCheck) {
 	}
 	probes.Wait()
 	result.report = report
-	for _, ok := range passed {
+	result.results = make(map[string]bool, len(targets))
+	for i, ok := range passed {
+		result.results[targets[i]] = ok
 		if ok {
 			result.passed++
 		}
@@ -360,9 +366,7 @@ func (m *zapret2) Tick() {
 	}
 	Decide("WARN", "zapret2: условие восстановления выполнено %d проверок подряд → переподбор стратегии", m.fails)
 	m.fails = 0
-	if !m.pick() {
-		m.setSt(2, false, "Восстановление не завершено", m.startErr)
-	}
+	m.recoverReserve(check)
 }
 
 func (m *zapret2) recordHealth(check siteCheck) {
@@ -407,6 +411,8 @@ func (m *zapret2) adoptRunning(i int) bool {
 }
 func (m *zapret2) Exit() *Exit { return &Exit{Iface: wanIface(), Table: 0, Mark: 0x13, Queue: true} }
 func (m *zapret2) Fields() []Field {
+	m.tk.Lock()
+	defer m.tk.Unlock()
 	m.load()
 	o := []Opt{{"", "(авто) подбирать"}}
 	for _, s := range m.strat {
@@ -414,6 +420,7 @@ func (m *zapret2) Fields() []Field {
 	}
 	return []Field{fb("zapret.enabled", "zapret2 включён", "bool", "true", ""),
 		fb("zapret.strategy", "Стратегия", "select", "", "В режиме «авто» агент переподбирает её сам, когда сайты перестают открываться", o...),
+		fb("zapret.passiveDraft", "ИИ-черновик по TCP без ответа", "bool", "false", "Нужны снимки потоков и привязка nDPI к YouTube или Discord. Общий лимит с клиентской пробой — одна попытка в час."),
 		fb("zapret.flowDraft", "Создавать ИИ-черновик по сбоям TCP Discord", "bool", "false", "Для клиентской пробы probe_discord_draft.py. Два сбоя при исправном HTTPS-контроле, не более одной генерации в час."),
 		fb("zapret.recoveryMode", "Автоподбор при сбое", "select", "any", "Действует при автоматическом выборе стратегии. Проверки выполняются на шлюзе.", Opt{"observe", "Только наблюдать"}, Opt{"any", "Если недоступна хотя бы одна цель"}, Opt{"all", "Если недоступны все цели"}),
 		fb("zapret.recoveryFailures", "Проверок подряд до автоподбора", "number", "2", "От 1 до 10."),
@@ -428,6 +435,9 @@ func (m *zapret2) Fields() []Field {
 func (m *zapret2) Set(k, v string) error {
 	m.tk.Lock()
 	defer m.tk.Unlock()
+	return m.setLocked(k, v)
+}
+func (m *zapret2) setLocked(k, v string) error {
 	switch k {
 	case "zapret.recoveryMode":
 		if v != "observe" && v != "any" && v != "all" {
@@ -455,7 +465,7 @@ func (m *zapret2) Set(k, v string) error {
 }
 func (m *zapret2) Actions() []Action {
 	var presets []Opt
-	for _, preset := range builtinZapretStrategies() {
+	for _, preset := range draftBaselines() {
 		presets = append(presets, Opt{preset.Name, preset.Name})
 	}
 	selectedModel := localModels[0].V
@@ -475,7 +485,7 @@ func (m *zapret2) Actions() []Action {
 		}},
 		{ID: "ai-draft-latest", Title: "Открыть последний черновик ИИ"},
 		{ID: "trial", Title: "Испытать запуск профиля", Args: []Field{
-			{Key: "preset", Title: "Встроенный профиль", Type: "select", Value: presets[0].V, Options: presets,
+			{Key: "preset", Title: "Встроенный профиль", Type: "select", Value: presets[0].V, Options: presets[:len(builtinZapretStrategies())],
 				Help: "Испытание проходит в отдельной сети Linux."},
 			{Key: "mode", Title: "Что проверить", Type: "select", Value: "http",
 				Options: []Opt{{"http", "Запуск и локальный HTTP-обмен"}, {"startup", "Только запуск"}}},
@@ -492,6 +502,8 @@ func (m *zapret2) Do(id string, a map[string]string) (string, error) {
 	if id == "trial" {
 		return trialZapretPreset(a["preset"], a["mode"])
 	}
+	m.tk.Lock()
+	defer m.tk.Unlock()
 	m.load()
 	i := m.index(a["row"])
 	switch id {
@@ -522,7 +534,7 @@ func (m *zapret2) Do(id string, a map[string]string) (string, error) {
 		if i < 0 {
 			return "", errors.New("стратегия не найдена")
 		}
-		return "Выбрана стратегия «" + a["row"] + "»", m.Set("zapret.strategy", a["row"])
+		return "Выбрана стратегия «" + a["row"] + "»", m.setLocked("zapret.strategy", a["row"])
 	case "delete":
 		if i < 0 || len(m.strat) < 2 {
 			return "", errors.New("нельзя удалить последнюю стратегию")
@@ -534,14 +546,22 @@ func (m *zapret2) Do(id string, a map[string]string) (string, error) {
 	return "", errors.New("неизвестное действие")
 }
 func (m *zapret2) Tables() []Table {
+	m.tk.Lock()
+	defer m.tk.Unlock()
 	m.load()
 	m.mu.Lock()
 	sites := m.sites
 	history := m.probeHistory
 	m.mu.Unlock()
 	var rows [][]string
-	for _, s := range m.strat {
+	slots := m.reserveIndices(m.index(m.running))
+	for i, s := range m.strat {
 		st := ""
+		for slot, id := range slots {
+			if id == i {
+				st = fmt.Sprintf("резерв %d", slot+1)
+			}
+		}
 		if s.Name == m.running {
 			st = "запущена"
 		}

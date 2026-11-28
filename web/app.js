@@ -101,7 +101,7 @@ function showZapretDraft(draft) {
     <p>${esc(draft.reason)}</p>${draft.status === 'draft' ? `<p class="sub">${esc(draft.created)} · ${esc(draft.model)} · ${esc(draft.scenario)} · профиль ${esc(draft.base)}</p>${draft.flowSamples?.length ? `<p>Клиентская проба Discord · TCP закреплён за zapret · HTTPS-контроль пройден</p><ul>${draft.flowSamples.map(s => `<li>${esc(s.utc)} · ${esc(s.outcome)}</li>`).join('')}</ul>` : ''}<label>Исходные параметры</label><pre>${esc(draft.original)}</pre>
     <label>Предложенные параметры</label><pre>${esc(draft.args)}</pre><p>SHA-256 ${esc(draft.sha256)}</p>
     <button id="draft-test">Испытать локально</button><button id="draft-save">Скачать черновик</button><button id="draft-base">Скачать исходный профиль</button><p id="draft-result" role="status">${esc(trialText(draft.trial))}</p>
-    <label for="draft-comparison">Парный отчёт compare_client_profiles.py (JSON)</label><input type="file" id="draft-comparison" accept=".json,application/json"><div id="draft-pairs" role="status"></div>` : ''}
+    <label for="draft-comparison">Парный отчёт compare_client_profiles.py (JSON)</label><input type="file" id="draft-comparison" accept=".json,application/json"><div id="draft-pairs" role="status"></div><button id="draft-admit" hidden>Добавить проверенный профиль в резерв</button>` : ''}
     <button id="draft-close">Закрыть</button>`);
   $('draft-close').onclick = closeModal;
   if (draft.status === 'draft') {
@@ -113,14 +113,35 @@ function showZapretDraft(draft) {
     };
     $('draft-save').onclick = () => downloadProfile(draft.args, draft.sha256);
     $('draft-base').onclick = () => downloadProfile(draft.original, draft.baseSha256);
+    let reserveReport;
+    const admit = $('draft-admit');
+    admit.onclick = async () => {
+      if (!reserveReport) return;
+      admit.disabled = true;
+      try { await post('zapret-admit-reserve', {report:reserveReport}); }
+      finally { admit.disabled = false; }
+    };
     $('draft-comparison').onchange = async event => {
       const input = event.target, file = input.files[0], result = $('draft-pairs');
-      result.textContent = '';
+      result.textContent = ''; reserveReport = null; admit.hidden = true;
       if (!file) return;
       try {
         if (file.size > 1024 * 1024) throw new Error('Размер отчёта превышает 1 МиБ.');
         const report = JSON.parse(await file.text());
-        if (input.files[0] === file) result.innerHTML = draftComparison(report, draft);
+        if (input.files[0] !== file) return;
+        result.innerHTML = draftComparison(report, draft);
+        if (report.comparison.youtube && report.comparison.discord_gateway) {
+          const other = draft.scenario === 'discord' ? 'youtube' : 'discord';
+          result.innerHTML += draftComparison(report, {...draft, scenario:other});
+          // Only send the evidence required for admission, omitting client addresses.
+          const comparison = Object.fromEntries(Object.entries(report.comparison).map(([key, s]) => [key, {
+            outcome:s.outcome, pairs:s.pairs.map(p => ({utc:p.utc, states:p.states,
+              egress:p.egress?.map(checks => Object.fromEntries(Object.entries(checks).map(([f,c]) => [f,{status:c.status}])))}))
+          }]));
+          reserveReport = {schema:report.schema, source:report.source, profile_source:report.profile_source, profiles:report.profiles, comparison};
+          const target = draft.scenario === 'discord' ? 'discord_gateway' : 'youtube';
+          admit.hidden = comparison[target].outcome !== 'only_second_observed' || !Object.values(comparison).every(s => ['both_observed','only_second_observed'].includes(s.outcome));
+        }
       } catch (err) {
         if (input.files[0] === file) result.textContent = err instanceof SyntaxError ? 'Не удалось прочитать JSON.' : err.message;
       }
