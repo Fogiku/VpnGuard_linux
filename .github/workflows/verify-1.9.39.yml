@@ -1,0 +1,45 @@
+name: Verify VpnGuard Linux 1.9.39 release candidate
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/verify-1.9.39.yml'
+      - 'docs/releases/1.9.39.md'
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Run Go tests
+        run: go test ./...
+      - name: Build Linux amd64 and arm64
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -o "dist/vpnguard-linux-$arch" .
+          done
+          test "$(./dist/vpnguard-linux-amd64 --version)" = "1.9.39"
+          file dist/vpnguard-linux-*
+          (cd dist && sha256sum vpnguard-linux-*) | tee dist/SHA256SUMS
+      - name: Upload candidate binaries (not published)
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpnguard-linux-1.9.39-candidate
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
