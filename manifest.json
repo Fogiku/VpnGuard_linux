@@ -1,15 +1,15 @@
 {
-  "version": "1.9.59",
-  "source": "9d2971ec297fa428951f3fd2f67ea32130e7eb32",
+  "version": "1.9.60",
+  "source": "5a461524d8b410a866e895b286ba162c56df6257",
   "sha256": {
-    "amd64": "50219d93c8e773f2b2e5fb5e170969a49c13b7c6421fd896aea9a4f042b56474",
-    "arm64": "6de1a07dbab6d573b22c2c97b472384a8e4a8ca5712b9a177fa4f6614cc2ceaa"
+    "amd64": "7669dfb8f8a18ba4db8d52af0ef06731e8f6728dd8aaebd1099033f095586d26",
+    "arm64": "e8f708cf289678d630f0b2d7aaf9435dd028b4af26b8c6d577308fd8ae01c029"
   },
   "helpers": {
     "guarded_update.py": "6f318ca0f14789d5efcbf6a85b9712c55c240423ba4d5cf2cc760f985ccf43f9",
     "route_guard.py": "bda39fa92512ae004fe671178e02ecd014b64e9edc2b39b1824ecff05550afcf"
   },
   "changes": [
-    "На подготовленном клиенте Linux скрипт run_client_comparison.sh запускает две серии браузерных проб и собирает JSON для окна черновика."
+    "В zapret2 настраиваются условие автоматического переподбора, количество проверок подряд и часовой лимит. Можно оставить выбор стратегии оператору."
   ]
 }
